@@ -333,7 +333,7 @@ function AssistantMessage({
           <summary>
             <span>
               <BranchesOutlined aria-hidden />
-              深度研搜过程
+              枢弈过程
             </span>
             <strong>{events.length}</strong>
           </summary>
