@@ -1,7 +1,7 @@
 <div align="center">
   <h1>Orbit-Agent</h1>
   <p><em>基于 DeepAgents 的对话式多智能体深度研究系统</em></p>
-  <p><strong>独立开发 · 多源信息检索 · 自动交付 Markdown / PDF 报告</strong></p>
+  <p><strong> 多源信息检索 · 自动交付 Markdown / PDF 报告</strong></p>
 </div>
 
 ## 📖 项目简介
