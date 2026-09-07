@@ -6,7 +6,7 @@
 
 ## 📖 项目简介
 
-**Orbit-Agent（深度研搜）** 是一个对话式多智能体深度研究系统：输入一个研究任务，主智能体负责任务规划与调度，三个专家子智能体分别从**互联网、MySQL 数据库、RAGFlow 私有知识库**三类信息源检索数据，最终汇总生成 Markdown / PDF 交付物，全过程通过 **WebSocket** 实时推送到 React 前端。
+**Orbit-Agent** 是一个对话式多智能体深度研究系统：输入一个研究任务，主智能体负责任务规划与调度，三个专家子智能体分别从**互联网、MySQL 数据库、RAGFlow 私有知识库**三类信息源检索数据，最终汇总生成 Markdown / PDF 交付物，全过程通过 **WebSocket** 实时推送到 React 前端。
 
 一个典型任务的样子：
 
@@ -102,7 +102,7 @@ orbit-agent/
 
 ### 环境要求
 
-- Python **3.12**（不支持 3.13）+ [uv](https://docs.astral.sh/uv/)
+- Python **3.12**+ [uv](https://docs.astral.sh/uv/)
 - Node.js + pnpm
 - Docker（MySQL 教学库）
 - 大模型 API Key（OpenAI 兼容）、Tavily API Key；RAGFlow 为可选依赖
