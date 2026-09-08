@@ -1,0 +1,79 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    env_file: .env                      # 密钥等从 .env 读取（gitignore，不提交）
+    environment:                        # 覆盖 .env 里的本机地址为容器内地址
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - backend_output:/app/app/output    # 生成的 MD/PDF
+      - backend_updated:/app/app/updated  # 用户上传
+      - checkpoint:/app/app/data          # 会话 checkpoint（断点恢复）
+    expose:
+      - "8000"                            # 仅容器网络，不对外暴露
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root}
+      MYSQL_ROOT_HOST: "%"                # 允许 backend 容器跨容器连 root
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-deepsearch_db}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      - --sql-mode=TRADITIONAL
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/mysql.sql:/docker-entrypoint-initdb.d/01-init-pharma.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:                                # 可选：REDIS_ENABLED=false 时整段可删除
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  caddy:
+    build:
+      context: .
+      dockerfile: docker/caddy.Dockerfile
+      args:
+        VITE_API_BASE_URL: https://${DOMAIN}
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  redis_data:
+  backend_output:
+  backend_updated:
+  checkpoint:
+  caddy_data:
+  caddy_config:
