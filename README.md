@@ -52,6 +52,7 @@
 - **安全防护**：SQL 注入防护（仅 SELECT/SHOW）、行数/超时限制、表名白名单、文件上传大小与扩展名校验、路径穿越防护。
 - **检索缓存**：Tavily 搜索与 RAGFlow 助手列表接入 Redis TTL 缓存，连接失败时静默降级。
 - **可观测性**：LangSmith 零代码链路追踪 + 工具/助手耗时埋点。
+- **并发治理**：基于 `asyncio.Semaphore` 限制同时执行的任务数（`TASK_CONCURRENCY` 可调），防止并发任务打爆内存与大模型配额。
 
 ![前端任务执行页](docs/images/orbit-agent-network-search-result.jpg)
 
@@ -158,6 +159,7 @@ pnpm build        # 生产构建
 - **安全**：`ALLOWED_SQL_TABLES` / `SQL_QUERY_TIMEOUT` / `SQL_MAX_ROWS` / `MAX_UPLOAD_MB` / `ALLOWED_FILE_EXTENSIONS`
 - **观测**：`LANGSMITH_API_KEY` / `LANGSMITH_TRACING`
 - **持久化**：`CHECKPOINT_DB_PATH` / `SESSION_EXPIRE_DAYS`
+- **并发**：`TASK_CONCURRENCY`（默认 2，同时执行任务数上限）
 
 ## 📚 文档
 

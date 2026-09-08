@@ -4,7 +4,7 @@
 >
 > **开发模式（用户确认）**：单人开发,**所有改动直接在 main 分支上进行**,不另建 feature 分支、不设分支保护、不走 PR 流程。为保证 main 始终健康,后续文档的每一步验证与回滚都同等重要。
 >
-> 本机现状（用户确认）：**已能完整跑通原项目**（大模型 Key / MySQL 就绪）；任务队列选型 **Celery + RabbitMQ**。
+> 本机现状（用户确认）：**已能完整跑通原项目**（大模型 Key / MySQL 就绪）；并发治理选型 **asyncio.Semaphore 信号量限流**（已放弃 Celery + RabbitMQ，理由见项目 5）。
 >
 > **RAGFlow 现状（用户确认）**：尚未部署,**无法进行有效测试**。因此本手册对 RAGFlow 相关部分**只保留优化改进**（列表缓存、MCP 工具迁移等）,**删除或暂缓其执行测试与验证**（含软件基线、MCP 回归、评测用例）,待 RAGFlow 部署后再行补测。
 
@@ -103,18 +103,19 @@
 
 ---
 
-## 项目 5｜任务队列与并发治理（Celery + RabbitMQ,已确认）
+## 项目 5｜并发治理（Semaphore 信号量限流）
 
-- **来源**：`app/api/server.py`——`/api/task` 用 `asyncio.create_task(run_deep_agent(...))` + `active_tasks` 字典（同 thread 取消旧任务）,返回 `{"status":"started","thread_id"}`。非 FastAPI BackgroundTasks,需按其真实实现改造。
-- **前置配置（新增依赖/服务/变量）**：新增依赖 `celery`、`redis`（复用项目1）；**新增 RabbitMQ 服务**（改 `docker/docker-compose.yaml` 加 `rabbitmq`,或 apt/brew 起本地）；`.env.example` 新增 `RABBITMQ_URL`、`CELERY_ENABLED`（默认false）、`CELERY_CONCURRENCY`（默认4）、`CELERY_TASK_TIMEOUT`（默认600）。
-- **落地步骤（两阶段,务必先限流再切队列）**：
-  1. **stage A（低风险）**：先在现状 asyncio 上加**并发信号量**限流（`asyncio.Semaphore(CELERY_CONCURRENCY)`）,收敛并行度,验证对项目无害。
-  2. **stage B（切队列）**：
-     - 新增 `app/worker/celery_app.py`、`app/worker/tasks.py`,将 `run_deep_agent` 包装为 Celery task（async 用 `asyncio.run` 包裹）。
-     - `server.py` 在 `CELERY_ENABLED=true` 时改为提交 Celery 任务并返回 `task_id`；否则保持原 asyncio 路径（**双模式并存**,降级安全）。
-     - 新增 `GET /api/task/{id}/status`；配置并发、超时、重试（指数退避,最多3次）、结果写入共享存储。
-- **验证**：并发提交多任务按并发上限排队；kill 一个 worker 后任务可重试不丢；状态接口正常。
-- **回滚**：`CELERY_ENABLED=false` 即回 asyncio 原路径,项目不依赖队列也能运行。
+> ⚠ 本项已**放弃原「Celery + RabbitMQ 队列」方案**，改为**进程内信号量限流**。理由：本项目是「单进程内存态」架构——`active_tasks`、WebSocket 连接、`monitor` 单例全部驻留在 FastAPI 主进程内（见 `app/api/monitor.py` 的 `ConnectionManager.active_connections`）。Celery 会把 `run_deep_agent` 挪到独立 worker 进程执行，worker 内的 `monitor` 与前端 WebSocket 连接不在同一进程，**事件推送会整体失效**；要修复还得引入 Redis pub/sub 跨进程事件总线 + RabbitMQ + 独立 worker 容器，对单机 demo 是显著过度设计。
+
+- **来源**：`app/api/server.py`——`/api/task` 用 `asyncio.create_task(run_deep_agent(...))` + `active_tasks` 字典（同 thread 取消旧任务）,返回 `{"status":"started","thread_id"}`。当前**无并发上限**：同时提交多个任务会并行启动多个 agent、并发调用大模型与数据库，在低配单机上易打爆内存与模型配额。
+- **前置配置（新增环境变量，无新依赖/新服务）**：`.env.example` 新增 `TASK_CONCURRENCY`（默认 2）。
+- **落地步骤**：
+  1. 在 `app/api/server.py` 新增模块级信号量：`_task_semaphore = asyncio.Semaphore(int(os.getenv("TASK_CONCURRENCY", "2")))`。
+  2. 新增内部协程 `_run_bounded(query, thread_id)`：用 `async with _task_semaphore:` 包住 `await run_deep_agent(...)`。
+  3. `run_task` 改为 `asyncio.create_task(_run_bounded(...))`，HTTP 仍立即返回，**排队发生在后台**，不阻塞接口。
+  4. （可选）在 `monitor` 增加 `report_queued` 事件，进入信号量前上报「排队中」，前端据此区分排队与执行两态。
+- **验证**：并发提交 N 个任务，观察实际并行执行数 ≤ `TASK_CONCURRENCY`，多余任务排队等待而非同时执行；调大限额后恢复并发。
+- **回滚**：把 `TASK_CONCURRENCY` 设为一个很大的值等价于不限流；或删除 `_run_bounded` 包装即回原始逻辑。
 
 ---
 
@@ -128,6 +129,13 @@
   3. 渐进迁移：先迁移只读工具（Tavily/RAGFlow list/文件读）,验证通过后再迁移 SQL 与写操作。
 - **验证**：网络搜索 / 数据库任务在 MCP 模式回归通过；工具可在独立 MCP client 复用；未带 token 被拒。（RAGFlow 工具迁移优化保留,其回归验证待 RAGFlow 部署后再补。）
 - **回滚**：`MCP_ENABLED=false` 整体回直接 import,零影响。
+- **工作量评估（单人，增量开发、双模式可整体回退）**：
+  - 工具适配层：9 个 LangChain `@tool` 无法被 FastMCP 直接复用，需逐一改写为 MCP tool（重写函数签名与返回序列化）——中等量。
+  - **会话上下文传递（最大难点）**：现有工具靠 `ContextVar`（`get_session_context` / `get_thread_context`）拿 `session_dir` 与 `thread_id`；MCP server 若独立进程 / SSE 运行，这些上下文不会自动跨进程传递，需把会话身份改成显式参数或 header 注入——工作量最高。
+  - token 鉴权中间件——低。
+  - 双模式客户端切换（`MCP_ENABLED` 开关）——中。
+  - 子智能体工具同步切换 + 回归验证——中（RAGFlow 部分因未部署暂缓）。
+  - **结论**：约 2~4 个工作日，一半耗在上下文传递与工具适配。若仅为简历亮点，建议先只迁「只读工具」（Tavily / 文件读 / RAGFlow list）并保留开关，其余按需渐进。
 
 ---
 
@@ -147,9 +155,9 @@
 ## 项目 8｜一键部署完善 + 交接（收尾）
 
 - **来源**：`docker/docker-compose.yaml` 仅 MySQL 一个服务；`frontend/vite.config.ts` 用 proxy `/api→8000`、`/ws→ws:8000`（无 axios/ws 依赖）。
-- **前置配置**：`docker-compose.yaml` 补 `redis`、`rabbitmq`、`worker` 服务（配合项目1/5）。
+- **前置配置**：`docker-compose.yaml` 补 `redis` 服务（可选，配合项目1 缓存）；生产环境部署由 `docker-compose.prod.yml` + Caddy 承接，无需队列服务。
 - **落地步骤**：
-  1. 在 `docker-compose.yaml` 增加 redis、rabbitmq、worker 服务。
+  1. 在 `docker-compose.yaml` 增加 redis 服务（可选，配合项目1 缓存）。
   2. 前端容器化并接入同一 compose（`/api`、`/ws` 代理指向后端服务名）。
   3. 更新 `README.md` 一键启动章节与 `.env.example`（汇总全部新增变量并注明用途）。
   4. 将本手册归档至 `docs/improvement-plan-solo.md`,勾选完成项。
@@ -168,14 +176,14 @@
 | 4 | 项目2 安全防护 | - | - | 白名单置空 |
 | 5 | 项目3 可观测 | langsmith | - | `LANGSMITH_TRACING` |
 | 6 | 项目4 持久化 | langgraph-checkpoint-sqlite | - | 切回 InMemorySaver |
-| 7 | 项目5 队列（先限流后切） | celery, redis | rabbitmq | `CELERY_ENABLED` |
+| 7 | 项目5 并发限流 | - | - | `TASK_CONCURRENCY` |
 | 8 | 项目6 MCP | fastmcp | - | `MCP_ENABLED` |
 | 9 | 项目7 评测+CI | pytest | - | `EVAL_GATE` |
-| 10 | 项目8 一键部署 | - | redis/rabbitmq/worker | 单服务回滚 |
+| 10 | 项目8 一键部署 | - | redis（可选） | 单服务回滚 |
 
 **铁律**：任何一步失败,立即停在当步并用其回滚开关还原,**绝不带着疑点进入下一步堆代码**（对应你的 VIBE CODING 约定：交付繁琐可接受、功能不可验证不可接受、项目不能改到跑不起来）。
 
 ## ⚠ 落地前需留意的三个实测风险点
 1. **deepagents 0.5.7 与 sqlite checkpointer 兼容性**（项目4）——必须先在 **main 分支** 直接改动并实测,不兼容则回滚为仅做事件持久化。
-2. **Celery 的 async 任务包装**（项目5）——`run_deep_agent` 是 async,需 `asyncio.run` 正确包裹,避免 event loop 转圈。
+2. **信号量限流的排队语义**（项目5）——任务在信号量前排队时尚未创建 session 目录，前端可能长时间看不到事件；建议加一个 `queued` 事件区分「排队中」与「执行中」。
 3. **RAGFlow `create_ask_delete` 有创建/删除会话副作用**（项目1）——暂不缓存其问答结果,避免状态混乱。
