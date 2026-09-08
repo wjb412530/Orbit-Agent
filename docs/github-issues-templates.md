@@ -1,6 +1,6 @@
 # GitHub Issues 模板 - Orbit-Agent 改进项目
 
-> 本文档提供 8 个改进项目的 GitHub Issue 模板，可直接复制使用
+> 本文档提供 7 个改进项目的 GitHub Issue 模板，可直接复制使用
 
 ---
 
@@ -153,95 +153,37 @@
 
 ---
 
-## Issue 5: 任务队列实现 (Celery + RabbitMQ)
+## Issue 5: 并发治理（Semaphore 信号量限流）
 
-**标题**: `feat: implement task queue with Celery and RabbitMQ`
+**标题**: `feat: add concurrency control with asyncio semaphore`
 
 **描述**:
 ```markdown
 ## 目标
-引入 Celery + RabbitMQ 任务队列，支持并发治理、任务重试和结果持久化。
+引入进程内信号量限流，防止并发任务打爆内存与大模型配额。
 
 ## 核心任务
-
-### Stage A - 并发限流（低风险）
-- [ ] 在现有 asyncio 上添加 Semaphore 限流
-- [ ] 验证并发控制对系统无害
-
-### Stage B - 切换队列
-- [ ] 新增 `app/worker/celery_app.py` 和 `app/worker/tasks.py`
-- [ ] 包装 `run_deep_agent` 为 Celery task
-- [ ] 改造 `server.py` 支持双模式（Celery / asyncio）
-- [ ] 新增 `GET /api/task/{id}/status` 查询接口
-- [ ] 配置并发、超时、重试策略
+- [ ] 在 `app/api/server.py` 新增模块级 `asyncio.Semaphore`
+- [ ] 新增 `_run_bounded` 协程，用 `async with` 包裹 `run_deep_agent`
+- [ ] `run_task` 改为后台排队，HTTP 接口仍立即返回
+- [ ] （可选）在 `monitor` 增加 `queued` 事件区分排队/执行
 
 ## 新增依赖
-- `celery`
-- `redis` (复用项目 1)
-
-## 新增服务
-- RabbitMQ (docker-compose 或本地安装)
+- 无（仅用标准库 asyncio）
 
 ## 新增环境变量
-- `RABBITMQ_URL`
-- `CELERY_ENABLED` (默认 false)
-- `CELERY_CONCURRENCY` (默认 4)
-- `CELERY_TASK_TIMEOUT` (默认 600)
+- `TASK_CONCURRENCY` (默认 2)
 
 ## 验证标准
-- [ ] 并发提交多任务按并发上限排队
-- [ ] Kill worker 后任务可重试不丢失
-- [ ] 状态查询接口正常返回
+- [ ] 并发提交 N 个任务，实际并行执行数 ≤ 上限
+- [ ] 多余任务排队而非同时执行
+- [ ] 调大限额可恢复并发
 
 ## 回滚方案
-设置 `CELERY_ENABLED=false` 即回 asyncio 原路径
+删除 `_run_bounded` 包装，或把 `TASK_CONCURRENCY` 设为极大值
 
 ## 参考文档
 - 详细计划：`docs/improvement-plan-solo.md` - 项目 5
-- 执行日志：`docs/execution-log.md`
-```
-
----
-
-## Issue 6: MCP 工具层改造
-
-**标题**: `feat: migrate tools to MCP architecture`
-
-**描述**:
-```markdown
-## 目标
-将 9 个工具迁移到 MCP 架构，提升工具复用性和安全性。
-
-## 核心任务
-- [ ] 新增 `mcp/` 目录，使用 FastMCP 声明 9 个工具
-- [ ] 实现 stdio/SSE 暴露和 token 鉴权
-- [ ] 主 Agent 支持 MCP 客户端模式加载工具
-- [ ] 渐进迁移：先只读工具，后写操作工具
-
-## 工具清单
-- `internet_search` (Tavily)
-- `get_assistant_list`, `create_ask_delete` (RAGFlow)
-- `list_sql_tables`, `get_table_data`, `execute_sql_query` (Database)
-- `read_file_content` (File)
-- `generate_markdown`, `convert_md_to_pdf` (Document)
-
-## 新增依赖
-- `fastmcp`
-
-## 新增环境变量
-- `MCP_ENABLED` (默认 false)
-- `MCP_AUTH_TOKEN`
-
-## 验证标准
-- [ ] 网络搜索 / 数据库任务在 MCP 模式下回归通过
-- [ ] 工具可在独立 MCP client 中复用
-- [ ] 未带 token 的请求被拒绝
-
-## 回滚方案
-设置 `MCP_ENABLED=false` 整体回直接 import，零影响
-
-## 参考文档
-- 详细计划：`docs/improvement-plan-solo.md` - 项目 6
 - 执行日志：`docs/execution-log.md`
 ```
 
@@ -301,16 +243,14 @@
 完善 docker-compose 配置，实现包含所有服务的一键部署。
 
 ## 核心任务
-- [ ] 在 `docker-compose.yaml` 中添加 redis、rabbitmq、worker 服务
+- [ ] 在 `docker-compose.yaml` 中添加 redis 服务（可选）
 - [ ] 前端容器化并接入 compose（配置 /api 和 /ws 代理）
 - [ ] 更新 `README.md` 一键启动文档
 - [ ] 汇总更新 `.env.example` 所有新增环境变量
 - [ ] 归档改进手册到 `docs/improvement-plan-solo.md`
 
 ## 新增服务
-- redis (复用项目 1)
-- rabbitmq (复用项目 5)
-- worker (Celery worker)
+- redis (复用项目 1，可选)
 - frontend (React 应用)
 
 ## 验证标准

@@ -6,7 +6,7 @@
 >
 > 本机现状（用户确认）：**已能完整跑通原项目**（大模型 Key / MySQL 就绪）；并发治理选型 **asyncio.Semaphore 信号量限流**（已放弃 Celery + RabbitMQ，理由见项目 5）。
 >
-> **RAGFlow 现状（用户确认）**：尚未部署,**无法进行有效测试**。因此本手册对 RAGFlow 相关部分**只保留优化改进**（列表缓存、MCP 工具迁移等）,**删除或暂缓其执行测试与验证**（含软件基线、MCP 回归、评测用例）,待 RAGFlow 部署后再行补测。
+> **RAGFlow 现状（用户确认）**：尚未部署,**无法进行有效测试**。因此本手册对 RAGFlow 相关部分**只保留优化改进**（列表缓存等）,**删除或暂缓其执行测试与验证**（含软件基线、评测用例）,待 RAGFlow 部署后再行补测。
 
 ---
 
@@ -36,7 +36,7 @@
   2. 新增 `.github/workflows/ci.yml`（**在 main 分支 push 时触发冒烟**）。**注意**：仓库当前无测试文件,首次 CI 不能直接写 `pytest`（会因无测试失败）,先做冒烟：
      - `uv run python -c "import app.api.server; print('backend smoke ok')"`
      - `cd frontend && pnpm install && pnpm build`
-  3. 在 GitHub 把 8 个项目各建一个 issue（作为工作项追踪,单人亦可用于打勾核对进度）。
+  3. 在 GitHub 把 7 个项目各建一个 issue（作为工作项追踪,单人亦可用于打勾核对进度）。
 - **验证**：推送到 main 后,CI 冒烟通过（无新增测试,仅验证导入与构建）。
 - **回滚**：纯增量文件,删除即可。
 - **降级开关**：不设,低风险。
@@ -119,26 +119,6 @@
 
 ---
 
-## 项目 6｜工具层 MCP 化（架构重构,放最后动工具）
-
-- **来源**：9 个 `@tool` 分布在 6 个文件——`db_tools.py`(3)、`markdown_tools.py`(`generate_markdown`)、`pdf_tools.py`(`convert_md_to_pdf`)、`ragflow_tools.py`(2)、`tavily_tool.py`(`internet_search`)、`upload_file_read_tool.py`(`read_file_content`)。主智能体直接 import 3 个文件工具,三子智能体各自 import 所属工具。
-- **前置配置（新增依赖/变量）**：新增依赖 `fastmcp`；`.env.example` 新增 `MCP_ENABLED`（默认false）、`MCP_AUTH_TOKEN`。
-- **落地步骤**：
-  1. 新增 `mcp/` server：将 9 个工具用 FastMCP 声明为 tools；以 stdio/SSE 暴露；请求头 token 鉴权。
-  2. 主智能体改为在 `MCP_ENABLED=true` 时通过 MCP 客户端按需加载工具,否则保持直接 import（**双模式**）。
-  3. 渐进迁移：先迁移只读工具（Tavily/RAGFlow list/文件读）,验证通过后再迁移 SQL 与写操作。
-- **验证**：网络搜索 / 数据库任务在 MCP 模式回归通过；工具可在独立 MCP client 复用；未带 token 被拒。（RAGFlow 工具迁移优化保留,其回归验证待 RAGFlow 部署后再补。）
-- **回滚**：`MCP_ENABLED=false` 整体回直接 import,零影响。
-- **工作量评估（单人，增量开发、双模式可整体回退）**：
-  - 工具适配层：9 个 LangChain `@tool` 无法被 FastMCP 直接复用，需逐一改写为 MCP tool（重写函数签名与返回序列化）——中等量。
-  - **会话上下文传递（最大难点）**：现有工具靠 `ContextVar`（`get_session_context` / `get_thread_context`）拿 `session_dir` 与 `thread_id`；MCP server 若独立进程 / SSE 运行，这些上下文不会自动跨进程传递，需把会话身份改成显式参数或 header 注入——工作量最高。
-  - token 鉴权中间件——低。
-  - 双模式客户端切换（`MCP_ENABLED` 开关）——中。
-  - 子智能体工具同步切换 + 回归验证——中（RAGFlow 部分因未部署暂缓）。
-  - **结论**：约 2~4 个工作日，一半耗在上下文传递与工具适配。若仅为简历亮点，建议先只迁「只读工具」（Tavily / 文件读 / RAGFlow list）并保留开关，其余按需渐进。
-
----
-
 ## 项目 7｜评测体系 + CI 门禁（量化收敛）
 
 - **来源**：`.env` LLM 配置（`OPENAI_BASE_URL`/`OPENAI_API_KEY`/`LLM_QWEN_MAX`）；baseline（前置第0步记录）；已确认**可用 LLM key 并接受消耗**。
@@ -177,9 +157,8 @@
 | 5 | 项目3 可观测 | langsmith | - | `LANGSMITH_TRACING` |
 | 6 | 项目4 持久化 | langgraph-checkpoint-sqlite | - | 切回 InMemorySaver |
 | 7 | 项目5 并发限流 | - | - | `TASK_CONCURRENCY` |
-| 8 | 项目6 MCP | fastmcp | - | `MCP_ENABLED` |
-| 9 | 项目7 评测+CI | pytest | - | `EVAL_GATE` |
-| 10 | 项目8 一键部署 | - | redis（可选） | 单服务回滚 |
+| 8 | 项目7 评测+CI | pytest | - | `EVAL_GATE` |
+| 9 | 项目8 一键部署 | - | redis（可选） | 单服务回滚 |
 
 **铁律**：任何一步失败,立即停在当步并用其回滚开关还原,**绝不带着疑点进入下一步堆代码**（对应你的 VIBE CODING 约定：交付繁琐可接受、功能不可验证不可接受、项目不能改到跑不起来）。
 

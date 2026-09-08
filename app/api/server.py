@@ -11,6 +11,7 @@ WebSocket 长连接。HTTP 接口只做轻量调度，真正的 DeepAgents 执�
 """
 
 import asyncio
+import os
 import shutil
 import uuid
 from contextlib import asynccontextmanager
@@ -61,6 +62,10 @@ app = FastAPI(title="DeepAgents API", lifespan=lifespan)
 # 保存 thread_id -> 后台 Agent 任务，用于同一会话任务替换和主动取消
 active_tasks: dict[str, asyncio.Task] = {}
 
+# 并发治理（项目 5）：信号量限制同时执行的任务数，防止并发任务打爆内存与大模型配额
+# 在后台协程内 acquire，避免阻塞 /api/task 的立即返回
+_task_semaphore = asyncio.Semaphore(int(os.getenv("TASK_CONCURRENCY", "2")))
+
 # output 保存每个会话最终工作区，前端只允许从这里浏览和下载生成文件
 output_dir = project_root / "output"
 output_dir.mkdir(exist_ok=True)
@@ -97,6 +102,16 @@ def _forget_task(thread_id: str, task: asyncio.Task) -> None:
         active_tasks.pop(thread_id, None)
 
 
+async def _run_bounded(query: str, thread_id: str) -> None:
+    """在信号量限流下执行 DeepAgents 任务。
+
+    任务排队发生在后台协程内，HTTP 接口仍立即返回；当并发任务数达到
+    TASK_CONCURRENCY 上限时，多余任务在此排队等待，而非同时执行。
+    """
+    async with _task_semaphore:
+        await run_deep_agent(query, thread_id)
+
+
 @app.post("/api/task")
 async def run_task(request: TaskRequest):
     """
@@ -113,7 +128,7 @@ async def run_task(request: TaskRequest):
         old_task.cancel()
 
     # create_task 把长耗时 Agent 执行交给事件循环，接口本身不用等待最终结果
-    task = asyncio.create_task(run_deep_agent(request.query, thread_id))
+    task = asyncio.create_task(_run_bounded(request.query, thread_id))
     active_tasks[thread_id] = task
     task.add_done_callback(lambda finished_task: _forget_task(thread_id, finished_task))
 
