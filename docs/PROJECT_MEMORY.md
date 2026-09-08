@@ -22,6 +22,7 @@
 12. [验证方式](#12-验证方式)
 13. [常见问题与注意事项](#13-常见问题与注意事项)
 14. [关键设计决策](#14-关键设计决策)
+15. [公网部署](#15-公网部署)
 
 ---
 
@@ -480,3 +481,58 @@ uv run python scripts/submit_test_task.py
 | 文件工具统一走 `resolve_path` | 防止模型使用任意绝对路径导致的越界读写 |
 | 缓存/观测/Redis 均可选且静默降级 | 保证最小依赖也能跑通 |
 | Markdown→PDF 用 ReportLab | 跨平台，不依赖 Word/浏览器 |
+
+
+---
+
+## 15. 公网部署
+
+项目为「单进程内存态」架构（`active_tasks`、WebSocket 连接、`checkpointer` 均保存在单个进程内），只能垂直扩展，因此公网部署采用「中档」方案：**单台轻量云服务器 + Docker Compose + Caddy**（而非 PaaS/内网穿透的「轻」档，或 K8s/全托管的「重」档）。
+
+| 档位 | 做法 | 取舍 |
+| --- | --- | --- |
+| 轻 | 内网穿透 / PaaS | 依赖本机常开、冷启动、WebSocket 支持差，不采用 |
+| 中 | 单机 + Compose + Caddy | 与单机内存态架构匹配，长期稳定在线，采用 |
+| 重 | K8s / 全托管云 | 多副本破坏 WebSocket 会话粘性，过度设计 |
+
+### 15.1 部署文件清单
+
+| 文件 | 作用 |
+| --- | --- |
+| `docker/backend.Dockerfile` | uv 构建后端镜像（按 uv.lock 精确安装依赖） |
+| `docker/caddy.Dockerfile` | 多阶段构建前端静态资源 + Caddy 网关 |
+| `Caddyfile` | 自动 HTTPS、静态托管、`/api` `/ws` 反代 |
+| `docker-compose.prod.yml` | 编排 backend + mysql + redis + caddy |
+| `.env.production` | 生产环境变量模板（含 `DOMAIN`） |
+
+### 15.2 部署拓扑
+
+```text
+公网 80/443
+   ▼
+[ Caddy ] ── 前端静态 dist + SPA 回退
+   │  /api/* 、/ws/* 反向代理
+   ▼
+[ backend :8000 ] ──┬─ [ mysql :3306 ]    （仅容器内网）
+                    └─ [ redis :6379 ]    （可选）
+```
+
+### 15.3 部署步骤
+
+1. 购买轻量云（Ubuntu 22.04），安装 Docker + Compose v2。
+2. 域名加 A 记录指向服务器 IP；防火墙放行 80/443（和 SSH 22）。
+3. `git clone https://github.com/wjb412530/Orbit-Agent.git`
+4. `cp .env.production .env`，填入真实密钥与 `DOMAIN=你的域名`。
+5. `docker compose -f docker-compose.prod.yml up -d --build`
+6. 首次自动：构建镜像 → MySQL 导入 `docker/mysql/mysql.sql` → Caddy 签发 HTTPS 证书。
+7. 验证：`https://你的域名` 打开前端、侧边栏 WebSocket 已连接、任务能跑通。
+
+### 15.4 关键约束（为什么这么做）
+
+- **单 worker**：`active_tasks` / WebSocket 连接都在进程内存，多 worker 会导致任务与事件推送跨进程失联。
+- **前端构建期注入 `VITE_API_BASE_URL`**：`config.ts` 默认回退 `http://localhost:8000`，生产必须注入公共域名。
+- **用 uv 而非 requirements.txt 构建**：后者缺 `redis` / `aiosqlite` / `langgraph-checkpoint-sqlite`。
+- **Caddy 自动 HTTPS + WebSocket**：`{$DOMAIN}` 自动签发 Let's Encrypt 证书，`/ws` 自动处理 Upgrade。
+- **MySQL 不映射宿主端口 + `MYSQL_ROOT_HOST="%"`**：内网更安全，同时支持 backend 跨容器以 root 连接。
+- **命名卷外置状态**：MySQL 数据、checkpoint、output/updated 挂卷持久化，容器重建不丢数据。
+- **密钥 env_file 不进镜像/仓库**：`.env` 在服务器上手动创建，绝不 COPY 进镜像、绝不上 Git。
