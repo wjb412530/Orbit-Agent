@@ -29,14 +29,13 @@
 
 ## 项目 0｜Git 协作规范 + CI 骨架（先立规矩）
 
-- **来源**：根目录现状——无 `CONTRIBUTING.md`、无 `.github/`、无 `tests/`（已核实 Not Found）。
+- **来源**：根目录现状——无 `.github/`、无 `tests/`（已核实 Not Found）。
 - **前置配置**：无新增依赖。开发直接在 **main 分支**上进行,不设置分支保护,也不走 feature / PR 流程。
 - **落地步骤**：
-  1. 新增 `CONTRIBUTING.md`：约定**直接在 main 分支开发**、commit 规范（延续现有 `feat:/fix:/docs:/chore:` 前缀）、以及"每次改动必须保持 main 可运行、失败即回滚"的纪律。
-  2. 新增 `.github/workflows/ci.yml`（**在 main 分支 push 时触发冒烟**）。**注意**：仓库当前无测试文件,首次 CI 不能直接写 `pytest`（会因无测试失败）,先做冒烟：
+  1. 新增 `.github/workflows/ci.yml`（**在 main 分支 push 时触发冒烟**）。**注意**：仓库当前无测试文件,首次 CI 不能直接写 `pytest`（会因无测试失败）,先做冒烟：
      - `uv run python -c "import app.api.server; print('backend smoke ok')"`
      - `cd frontend && pnpm install && pnpm build`
-  3. 在 GitHub 把 6 个项目各建一个 issue（作为工作项追踪,单人亦可用于打勾核对进度）。
+  2. 在 GitHub 把 6 个项目各建一个 issue（作为工作项追踪,单人亦可用于打勾核对进度）。
 - **验证**：推送到 main 后,CI 冒烟通过（无新增测试,仅验证导入与构建）。
 - **回滚**：纯增量文件,删除即可。
 - **降级开关**：不设,低风险。

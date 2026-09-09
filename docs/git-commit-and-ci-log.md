@@ -43,7 +43,6 @@ Changes to be committed:
 
 **配置文件**:
 - `.github/workflows/ci.yml` (63 行) - CI 冒烟测试
-- `CONTRIBUTING.md` (141 行) - 开发规范
 - `.env.example` - 新增 34 行配置项
 - `pyproject.toml` - 新增依赖
 - `.gitignore` - 忽略 checkpoints.db 等文件
@@ -107,7 +106,6 @@ feat: 完成项目0-4改进实现（Git规范+缓存+安全+可观测+持久化�
 本次提交完成了改进路线图中的前5个阶段（阶段0-4）的全部实现和验证：
 
 ## 项目0: Git协作规范 + CI骨架 ✅
-- 新增 CONTRIBUTING.md 开发规范文档
 - 新增 .github/workflows/ci.yml CI冒烟测试
 - 新增 docs/github-issues-templates.md Issue模板
 
@@ -158,7 +156,6 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
  43 files changed, 6398 insertions(+), 33 deletions(-)
  create mode 100644 .claude/settings.local.json
  create mode 100644 .github/workflows/ci.yml
- create mode 100644 CONTRIBUTING.md
  (... 40 more files created/modified ...)
 ```
 
@@ -390,7 +387,6 @@ Net change: +6365 lines
 **配置**:
 - `.github/workflows/ci.yml`
 - `.env.example`
-- `CONTRIBUTING.md`
 
 **核心代码**:
 - `app/agent/main_agent.py`

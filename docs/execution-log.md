@@ -7,7 +7,7 @@
 | 步骤 | 状态 | 开始时间 | 完成时间 | 备注 |
 | --- | --- | --- | --- | --- |
 | 前置：环境基线锁定 | ✅ 已完成 | 2026-08-29 | 2026-08-29 | 基线数据已记录 |
-| 项目0：Git协作规范+CI | ✅ 已完成 | 2026-08-29 | 2026-08-29 | CONTRIBUTING.md + CI配置 + Issues模板 |
+| 项目0：Git协作规范+CI | ✅ 已完成 | 2026-08-29 | 2026-08-29 | CI配置 + Issues模板 |
 | 项目1：Redis缓存 | ✅ 已完成 | 2026-08-29 | 2026-08-29 | Tavily + RAGFlow 列表缓存 |
 | 项目2：安全防护 | ✅ 已完成 | 2026-08-29 | 2026-08-29 | SQL注入防护 + 文件上传验证 |
 | 项目3：可观测性 | ✅ 已完成 | 2026-08-29 | 2026-08-29 | LangSmith集成 + Monitor耗时增强 |
@@ -75,20 +75,13 @@
 
 ### 执行步骤
 
-#### 1. 创建开发贡献指南
-- [x] 创建 `CONTRIBUTING.md` - 已完成
-- [x] 约定 main 分支直接开发模式 - 已明确
-- [x] 定义 commit 规范（feat:/fix:/docs:/chore:等） - 已定义
-- [x] 说明验证和回滚机制 - 已说明
-- [x] 列出 6 个改进项目清单 - 已列出
-
-#### 2. 创建 CI 配置
+#### 1. 创建 CI 配置
 - [x] 创建 `.github/workflows/` 目录 - 已创建
 - [x] 创建 `ci.yml` 配置文件 - 已完成
 - [x] 配置后端冒烟测试（Python 导入检查） - 已配置
 - [x] 配置前端冒烟测试（pnpm build） - 已配置
 
-#### 3. 准备 GitHub Issues 模板
+#### 2. 准备 GitHub Issues 模板
 - [x] 创建 `docs/github-issues-templates.md` - 已完成
 - [x] 为 6 个项目准备详细 Issue 模板 - 已完成
 - [x] 包含标题、描述、任务清单、验证标准、回滚方案 - 已完成
@@ -96,9 +89,8 @@
 ### 执行详情
 
 **文件清单**:
-1. `CONTRIBUTING.md` - 开发规范和流程文档
-2. `.github/workflows/ci.yml` - CI 冒烟测试配置
-3. `docs/github-issues-templates.md` - 6 个项目的 Issue 模板
+1. `.github/workflows/ci.yml` - CI 冒烟测试配置
+2. `docs/github-issues-templates.md` - 6 个项目的 Issue 模板
 
 **CI 配置说明**:
 - 触发时机：main 分支 push 和 PR
@@ -107,11 +99,10 @@
 - 并行执行，快速反馈
 
 **GitHub Issues 创建指南**:
-用户可访问仓库 Issues 页面，复制 `docs/github-issues-templates.md` 中的模板内容创建 8 个追踪 issue。
+用户可访问仓库 Issues 页面，复制 `docs/github-issues-templates.md` 中的模板内容创建 6 个追踪 issue。
 
 ### 验证结果
 
-- [x] `CONTRIBUTING.md` 文档内容完整清晰
 - [x] `.github/workflows/ci.yml` 配置语法正确
 - [x] Issues 模板涵盖所有 6 个项目
 - [ ] 推送到 GitHub 后 CI 自动运行（待推送验证）

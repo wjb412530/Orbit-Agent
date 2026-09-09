@@ -27,7 +27,6 @@
 ### 项目 0: Git 协作规范 + CI 骨架
 
 **新增文件**:
-- `CONTRIBUTING.md` - 开发规范文档
 - `.github/workflows/ci.yml` - CI 冒烟测试
 - `docs/github-issues-templates.md` - Issue 模板
 
@@ -118,49 +117,48 @@ Deletions: -33
 Net change: +6365 lines
 ```
 
-### 新增文件 (32 个)
+### 新增文件 (31 个)
 
 **配置和规范**:
 1. `.github/workflows/ci.yml`
-2. `CONTRIBUTING.md`
-3. `.claude/settings.local.json`
+2. `.claude/settings.local.json`
 
 **核心工具模块**:
-4. `app/utils/cache.py`
-5. `app/utils/safety.py`
+3. `app/utils/cache.py`
+4. `app/utils/safety.py`
 
 **文档** (9 个):
-6. `docs/baseline.md`
-7. `docs/execution-log.md`
-8. `docs/github-issues-templates.md`
-9. `docs/improvement-plan-solo.md`
-10. `docs/project2-security-design.md`
-11. `docs/project3-observability-design.md`
-12. `docs/project4-complete-guide.md`
-13. `docs/project4-session-persistence-design.md`
-14. `docs/project4-session-persistence-implementation.md`
+5. `docs/baseline.md`
+6. `docs/execution-log.md`
+7. `docs/github-issues-templates.md`
+8. `docs/improvement-plan-solo.md`
+9. `docs/project2-security-design.md`
+10. `docs/project3-observability-design.md`
+11. `docs/project4-complete-guide.md`
+12. `docs/project4-session-persistence-design.md`
+13. `docs/project4-session-persistence-implementation.md`
 
 **测试脚本** (15 个):
-15. `scripts/test_baseline.py`
-16. `scripts/test_redis_cache.py`
-17. `scripts/test_security.py`
-18. `scripts/test_sessions_api.py`
-19. `scripts/clean_checkpoints.py`
-20. `scripts/query_checkpoints.py`
-21. `scripts/trace_query.py`
-22. `scripts/init_checkpointer_db.py`
-23. `scripts/submit_test_task.py`
-24. `scripts/test_astream_checkpointer.py`
-25. `scripts/test_checkpointer.py`
-26. `scripts/test_port_8001.py`
-27. `scripts/view_checkpoints.py`
-28. `scripts/kill_port_8000.py`
-29. `scripts/kill_port_8001.py`
+14. `scripts/test_baseline.py`
+15. `scripts/test_redis_cache.py`
+16. `scripts/test_security.py`
+17. `scripts/test_sessions_api.py`
+18. `scripts/clean_checkpoints.py`
+19. `scripts/query_checkpoints.py`
+20. `scripts/trace_query.py`
+21. `scripts/init_checkpointer_db.py`
+22. `scripts/submit_test_task.py`
+23. `scripts/test_astream_checkpointer.py`
+24. `scripts/test_checkpointer.py`
+25. `scripts/test_port_8001.py`
+26. `scripts/view_checkpoints.py`
+27. `scripts/kill_port_8000.py`
+28. `scripts/kill_port_8001.py`
 
 **数据库文件**:
-30. `app/data/test_checkpoints.db`
-31. `app/data/test_astream_checkpoints.db`
-32. `baseline_results.json`
+29. `app/data/test_checkpoints.db`
+30. `app/data/test_astream_checkpoints.db`
+31. `baseline_results.json`
 
 ### 修改文件 (11 个)
 
@@ -405,7 +403,6 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 
 ### 操作手册
 
-- [`CONTRIBUTING.md`](../CONTRIBUTING.md) - 开发规范
 - [`README.md`](../README.md) - 项目说明
 
 ---
