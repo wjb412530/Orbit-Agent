@@ -1,6 +1,6 @@
 # GitHub Issues 模板 - Orbit-Agent 改进项目
 
-> 本文档提供 7 个改进项目的 GitHub Issue 模板，可直接复制使用
+> 本文档提供 6 个改进项目的 GitHub Issue 模板，可直接复制使用
 
 ---
 
@@ -230,43 +230,6 @@
 - 基线数据：`docs/baseline.md`
 - 执行日志：`docs/execution-log.md`
 ```
-
----
-
-## Issue 8: 一键部署完善
-
-**标题**: `feat: implement one-click deployment with Docker Compose`
-
-**描述**:
-```markdown
-## 目标
-完善 docker-compose 配置，实现包含所有服务的一键部署。
-
-## 核心任务
-- [ ] 在 `docker-compose.yaml` 中添加 redis 服务（可选）
-- [ ] 前端容器化并接入 compose（配置 /api 和 /ws 代理）
-- [ ] 更新 `README.md` 一键启动文档
-- [ ] 汇总更新 `.env.example` 所有新增环境变量
-- [ ] 归档改进手册到 `docs/improvement-plan-solo.md`
-
-## 新增服务
-- redis (复用项目 1，可选)
-- frontend (React 应用)
-
-## 验证标准
-- [ ] 从空环境按 README 一键拉起全部服务
-- [ ] 3 个典型任务（网络搜索、数据库查询、文件上传）全跑通
-- [ ] 前端能正常访问和使用
-
-## 回滚方案
-单服务回滚即可，无全局风险
-
-## 参考文档
-- 详细计划：`docs/improvement-plan-solo.md` - 项目 8
-- 执行日志：`docs/execution-log.md`
-```
-
----
 
 ## 使用说明
 

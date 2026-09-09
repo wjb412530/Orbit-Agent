@@ -86,7 +86,6 @@ cd frontend && pnpm install && pnpm build
 5. ⏳ 项目 4：会话持久化
 6. ⏳ 项目 5：并发治理（Semaphore）
 7. ⏳ 项目 7：评测体系
-8. ⏳ 项目 8：一键部署
 
 执行进度追踪见 `docs/execution-log.md`。
 

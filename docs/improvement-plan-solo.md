@@ -36,7 +36,7 @@
   2. 新增 `.github/workflows/ci.yml`（**在 main 分支 push 时触发冒烟**）。**注意**：仓库当前无测试文件,首次 CI 不能直接写 `pytest`（会因无测试失败）,先做冒烟：
      - `uv run python -c "import app.api.server; print('backend smoke ok')"`
      - `cd frontend && pnpm install && pnpm build`
-  3. 在 GitHub 把 7 个项目各建一个 issue（作为工作项追踪,单人亦可用于打勾核对进度）。
+  3. 在 GitHub 把 6 个项目各建一个 issue（作为工作项追踪,单人亦可用于打勾核对进度）。
 - **验证**：推送到 main 后,CI 冒烟通过（无新增测试,仅验证导入与构建）。
 - **回滚**：纯增量文件,删除即可。
 - **降级开关**：不设,低风险。
@@ -130,22 +130,6 @@
 - **验证**：本地一次 `evals/run_evals.py` 产出完整报告；推送 main 触发评测。
 - **回滚**：`EVAL_GATE=false` 仅出报告不拦截。
 
----
-
-## 项目 8｜一键部署完善 + 交接（收尾）
-
-- **来源**：`docker/docker-compose.yaml` 仅 MySQL 一个服务；`frontend/vite.config.ts` 用 proxy `/api→8000`、`/ws→ws:8000`（无 axios/ws 依赖）。
-- **前置配置**：`docker-compose.yaml` 补 `redis` 服务（可选，配合项目1 缓存）；生产环境部署由 `docker-compose.prod.yml` + Caddy 承接，无需队列服务。
-- **落地步骤**：
-  1. 在 `docker-compose.yaml` 增加 redis 服务（可选，配合项目1 缓存）。
-  2. 前端容器化并接入同一 compose（`/api`、`/ws` 代理指向后端服务名）。
-  3. 更新 `README.md` 一键启动章节与 `.env.example`（汇总全部新增变量并注明用途）。
-  4. 将本手册归档至 `docs/improvement-plan-solo.md`,勾选完成项。
-- **验证**：从空环境按 README 一键拉起全部服务,3 个典型任务全跑通。
-- **回滚**：单服务回滚即可,无全局风险。
-
----
-
 ## 单人执行顺序与安全护栏总结
 
 | 步骤 | 项目 | 新增依赖 | 新增服务 | 回滚开关 |
@@ -158,7 +142,6 @@
 | 6 | 项目4 持久化 | langgraph-checkpoint-sqlite | - | 切回 InMemorySaver |
 | 7 | 项目5 并发限流 | - | - | `TASK_CONCURRENCY` |
 | 8 | 项目7 评测+CI | pytest | - | `EVAL_GATE` |
-| 9 | 项目8 一键部署 | - | redis（可选） | 单服务回滚 |
 
 **铁律**：任何一步失败,立即停在当步并用其回滚开关还原,**绝不带着疑点进入下一步堆代码**（对应你的 VIBE CODING 约定：交付繁琐可接受、功能不可验证不可接受、项目不能改到跑不起来）。
 
