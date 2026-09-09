@@ -34,5 +34,8 @@ dependencies = [
     "uvicorn[standard]>=0.20.0",
 ]
 
+[dependency-groups]
+tracing = ["langsmith"]
+
 [tool.uv]
 package = false

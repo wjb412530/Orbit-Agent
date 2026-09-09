@@ -155,9 +155,7 @@ Orbit-Agent/
 ├── examples/                     # DeepAgents 章节示例脚本（15 个）
 ├── frontend/                     # React 前端
 ├── scripts/                      # 调试/测试/运维脚本
-├── CLAUDE.md                     # 协作指南
 ├── pyproject.toml                # Python 依赖与项目元信息
-├── requirements.txt              # 依赖快照
 └── .env.example                  # 环境变量模板
 ```
 
@@ -696,6 +694,5 @@ monitor._emit("error", "错误信息")
 ## 参考来源
 
 - 项目自述文档：[README.md](../README.md)
-- 协作指南：[CLAUDE.md](../CLAUDE.md)
 - 环境变量模板：[.env.example](../.env.example)
 - 依赖清单：[pyproject.toml](../pyproject.toml)、[frontend/package.json](../frontend/package.json)

@@ -126,9 +126,7 @@ orbit-agent/
 ├── frontend/                     # React 前端
 ├── scripts/                      # 调试 / 测试 / 运维脚本
 ├── pyproject.toml                # Python 依赖与元信息
-├── requirements.txt              # 依赖快照
 ├── uv.lock                       # uv 锁文件
-├── CLAUDE.md                     # 协作指南
 └── .env.example                  # 环境变量模板
 ```
 

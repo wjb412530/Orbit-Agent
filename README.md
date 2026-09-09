@@ -164,7 +164,6 @@ pnpm build        # 生产构建
 ## 📚 文档
 
 - 代码文档：[docs/CODE_WIKI.md](docs/CODE_WIKI.md)（整体架构、模块职责、关键类与函数、依赖关系与运行方式）
-- 协作指南：[CLAUDE.md](CLAUDE.md)
 
 ## License
 

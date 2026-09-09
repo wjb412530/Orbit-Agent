@@ -52,7 +52,7 @@ def query_traces_by_thread_id(thread_id: str, api_key: str):
         from langsmith import Client
     except ImportError:
         print("❌ 错误：未安装 langsmith 依赖")
-        print("请运行：uv pip install langsmith")
+        print("请运行：uv sync --group tracing")
         sys.exit(1)
 
     client = Client(api_key=api_key)
@@ -114,7 +114,7 @@ def query_recent_traces(limit: int, api_key: str):
         from langsmith import Client
     except ImportError:
         print("❌ 错误：未安装 langsmith 依赖")
-        print("请运行：uv pip install langsmith")
+        print("请运行：uv sync --group tracing")
         sys.exit(1)
 
     client = Client(api_key=api_key)
