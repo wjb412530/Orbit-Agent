@@ -6,6 +6,7 @@ DeepAgents 可识别的字典式子智能体。主智能体后续会根据 descr
 决定是否把企业内部非结构化文档查询任务分派给它。
 """
 
+from app.agent.llm import model
 from app.agent.prompts import sub_agents_content
 from app.tools.ragflow_tools import create_ask_delete, get_assistant_list
 
@@ -16,5 +17,6 @@ knowledge_base_agent = {
     "name": sub_agents_content["ragflow"]["name"],
     "description": sub_agents_content["ragflow"]["description"],
     "system_prompt": sub_agents_content["ragflow"]["system_prompt"],
+    "model": model,
     "tools": [get_assistant_list, create_ask_delete],
 }

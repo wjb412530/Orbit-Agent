@@ -134,6 +134,7 @@ export function ChatComposer({
             </Tooltip>
             <Upload
               beforeUpload={() => false}
+              accept=".txt,.md,.pdf,.docx,.xlsx,.csv,.jpg,.jpeg,.png,.webp"
               fileList={[]}
               multiple
               onChange={(info) => {

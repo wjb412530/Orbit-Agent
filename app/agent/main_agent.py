@@ -17,7 +17,7 @@ from pathlib import Path
 from deepagents import create_deep_agent
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from app.agent.llm import model
+from app.agent.llm import vl_model
 from app.agent.prompts import main_agent_content
 from app.agent.subagents.database_query_agent import database_query_agent
 from app.agent.subagents.knowledge_base_agent import knowledge_base_agent
@@ -33,6 +33,7 @@ from app.api.monitor import monitor
 from app.tools.markdown_tools import generate_markdown
 from app.tools.pdf_tools import convert_md_to_pdf
 from app.tools.upload_file_read_tool import read_file_content
+from app.tools.image_tool import analyze_image
 
 # 主智能体是调度中心：
 # 1. tools 只放最终交付相关的文件工具
@@ -71,9 +72,9 @@ async def get_main_agent():
     if _main_agent_instance is None:
         checkpointer = await get_checkpointer()
         _main_agent_instance = create_deep_agent(
-            model=model,
+            model=vl_model,
             system_prompt=main_agent_content["system_prompt"],
-            tools=[generate_markdown, convert_md_to_pdf, read_file_content],
+            tools=[generate_markdown, convert_md_to_pdf, read_file_content, analyze_image],
             checkpointer=checkpointer,
             subagents=[database_query_agent, network_search_agent, knowledge_base_agent],
         )

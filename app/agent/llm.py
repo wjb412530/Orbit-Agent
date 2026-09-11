@@ -18,3 +18,9 @@ model = init_chat_model(
     model=os.getenv("LLM_QWEN_MAX"),
     model_provider="openai",
 )
+
+# 多模态模型：主智能体使用，支持图片理解（qwen-vl-max）
+vl_model = init_chat_model(
+    model=os.getenv("LLM_QWEN_VL", "qwen-vl-max"),
+    model_provider="openai",
+)
