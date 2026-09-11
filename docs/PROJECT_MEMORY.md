@@ -214,6 +214,14 @@ sequenceDiagram
 
 - Markdown → PDF 用 ReportLab，内置中文 CID 字体 `STSong-Light`，不依赖 Word/浏览器/系统 PDF 工具。
 
+### 6.8 前端会话历史（localStorage 持久化）
+
+- 会话列表存 `localStorage["orbit-agent.sessions"]`（threadId/title/createdAt，50 条上限）；对话记忆存 `localStorage["orbit-agent.thread-history"]`（用户/助手消息序列，每会话 100 条、单条 2 万字符、50 个会话上限，超限静默降级）。
+- 历史记录仅保留有真实对话内容的会话：点击「新建对话」不产生占位条目，仅首次成功提交消息（含文本/图片/音频附件）时以消息首句为标题登记会话；加载时过滤标题为「新对话」的遗留占位条目。
+- 切换会话：先保存当前对话 → `switchSession` 切换 thread_id（WS 重连，后端 checkpoint 断点续跑）→ 从 localStorage 恢复消息展示；任务完成时立即持久化，防直接刷新丢失。
+- 删除会话：条目 hover 右上角显示删除按钮（Popconfirm 确认），`removeSession` 移除列表项 + `saveThreadHistory(id, [])` 清空对话记忆（空数组即删除该会话条目）；删除当前会话时先取消运行中任务并重置到新会话，后端 session 文件目录不删除。
+- 前端测试：vitest（`pnpm test`），覆盖 sessions / history / media / audioRecording 四个模块。
+
 ---
 
 ## 7. 模块职责与关键代码位置
@@ -247,11 +255,16 @@ sequenceDiagram
 
 | 文件 | 关键符号 | 职责 |
 | --- | --- | --- |
-| `frontend/src/hooks/useDeepAgentSession.ts` | `useDeepAgentSession` | 会话状态、WebSocket、文件刷新 |
-| `frontend/src/lib/api.ts` | `startTask` / `cancelTask` / `uploadSessionFiles` / `listSessionFiles` / `getDownloadUrl` | REST 封装 |
+| `frontend/src/hooks/useDeepAgentSession.ts` | `useDeepAgentSession` | 会话状态、WebSocket、文件刷新、会话切换/删除 |
+| `frontend/src/lib/api.ts` | `startTask` / `cancelTask` / `uploadSessionFiles` / `deleteUploadedFile` / `listSessionFiles` / `getDownloadUrl` | REST 封装 |
 | `frontend/src/lib/config.ts` | `API_BASE_URL` / `WS_BASE_URL` | 环境配置 |
 | `frontend/src/lib/thread.ts` | `createThreadId` / `getStoredThreadId` / `storeThreadId` | thread_id 管理 |
-| `frontend/src/App.tsx` | `App` | 根组件 |
+| `frontend/src/lib/sessions.ts` | `loadSessions` / `persistSessions` / `upsertSession` / `renameSession` / `removeSession` / `filterMeaningfulSessions` / `titleFromQuery` / `relativeTime` | 会话列表（localStorage） |
+| `frontend/src/lib/history.ts` | `turnsToHistory` / `historyToTurns` / `loadThreadHistory` / `saveThreadHistory` / `capHistory` | 对话记忆（localStorage） |
+| `frontend/src/lib/media.ts` | `categorizeMedia` / `buildImagePrompt` / `buildAudioPrompt` / `buildMediaPrompt` | 多模态附件分类与提示构造 |
+| `frontend/src/lib/audioRecording.ts` | `extensionForAudioMime` / `makeAudioFile` / `formatMediaDuration` | 浏览器录音与音频文件化 |
+| `frontend/src/hooks/useMediaInput.ts` | `useMediaInput` | 图片/音频选择、录音与上传状态 |
+| `frontend/src/App.tsx` | `App` | 根组件（含「历史记录」侧边栏、会话切换与删除） |
 
 ---
 
@@ -452,7 +465,8 @@ uv run python scripts/submit_test_task.py
 ## 12. 验证方式
 
 - **后端**：`POST /api/task` 能返回 `{"status":"started","thread_id":...}`，且 WebSocket 能收到 `session_created` / `tool_start` / `task_result` 等事件。
-- **前端**：打开 `http://localhost:5173`，侧边栏显示「WebSocket 已连接」，提交任务后能看到事件流与文件列表。
+- **前端**：打开 `http://localhost:5173`，侧边栏显示「WebSocket 已连接」，提交任务后能看到事件流与文件列表；侧边栏「历史记录」可切换与删除会话。
+- **前端单测**：`cd frontend && pnpm test`（vitest，覆盖 sessions / history / media / audioRecording）。
 - **示例任务**：
 
 ```text
@@ -514,6 +528,7 @@ uv run python scripts/submit_test_task.py
 | `POST /api/task` | `run_task` | 同 thread_id 只保留一个活跃任务，先 cancel 旧任务再 create_task |
 | `POST /api/task/{thread_id}/cancel` | `cancel_task` | 取消指定会话任务 |
 | `POST /api/upload` | `upload_files` | 上传到 updated/session_{thread_id}，validate_file_upload 校验后流式落盘 |
+| `DELETE /api/upload/{thread_id}/{filename}` | `delete_uploaded_file` | 删除会话已上传文件（thread_id/filename 限单路径片段，拒绝 `..` 与分隔符） |
 | `GET /api/download` | `download_file` | 按路径下载，resolve + is_relative_to 限制在 output_dir |
 | `GET /api/files` | `list_files` | 递归列出目录文件元数据 |
 | `GET /api/sessions` | `list_sessions` | 从 checkpoint 库查询历史会话 |
@@ -540,9 +555,16 @@ payload 统一为 `{"type":"monitor_event","event":...,"message":...,"data":...,
 
 ```python
 create_deep_agent(
-    model=model,
+    model=vl_model,  # 主智能体使用多模态模型（文本/图片理解/文生图/语音转写统一由主智能体调度）
     system_prompt=main_agent_content["system_prompt"],
-    tools=[generate_markdown, convert_md_to_pdf, read_file_content],
+    tools=[
+        generate_markdown,
+        convert_md_to_pdf,
+        read_file_content,
+        analyze_image,
+        generate_image,
+        transcribe_audio,
+    ],
     checkpointer=checkpointer,
     subagents=[database_query_agent, network_search_agent, knowledge_base_agent],
 )
@@ -573,23 +595,26 @@ create_deep_agent(
 | `generate_markdown` | `(content, filename, path)` | 主智能体 |
 | `convert_md_to_pdf` | `(md_filename, pdf_filename)` | 主智能体 |
 | `read_file_content` | `(filename, instruction)` | 主智能体（md/txt/docx/pdf/xlsx） |
+| `analyze_image` | `(filename, instruction)` | 主智能体（多模态模型 qwen-vl-max 理解图片） |
+| `generate_image` | `(prompt, size)` | 主智能体（DashScope 文生图 qwen-image-3.0，输出到会话 images/） |
+| `transcribe_audio` | `(filename)` | 主智能体（DashScope ASR qwen-audio-3.0-asr-flash，音频 base64 data URL 直传） |
 
 ### A.5 前端组件清单
 
 | 组件 | 说明 | 是否接入 App |
 | --- | --- | --- |
-| `ChatComposer` | 输入框 + 文件上传 + 提交/取消 | ✅ |
+| `ChatComposer` | 输入框 + 附件（图片/音频/文档）+ 录音 + 提交/取消 | ✅ |
 | `ConversationThread` | 对话轮次（ChatTurn），含 MarkdownRenderer | ✅ |
 | `MarkdownRenderer` | react-markdown + remark-gfm | ✅ |
 | `EventStream` | 事件流展示 | 辅助 |
 | `FileDock` | 文件列表 + 下载 | 辅助 |
 | `ResultPanel` | 结果展示 + 复制 | 辅助 |
 | `StatusStrip` | 连接状态条 | 辅助 |
-| `UploadPanel` | 上传面板 | 辅助 |
+| `UploadPanel` | 上传面板（含录音文件删除） | ✅ |
 | `AgentTopology` | 子智能体拓扑展示 | 辅助 |
 | `MissionComposer` | 早期任务输入 | 辅助 |
 
-`useDeepAgentSession` 要点：WS 25s 心跳、断线 2s 重连；事件最多保留 120 条；文件轮询运行中 2.5s / 空闲 6s；动作 `submitTask` / `cancelCurrentTask` / `uploadFiles` / `resetSession` / `refreshFiles`。
+`useDeepAgentSession` 要点：WS 25s 心跳、断线 2s 重连；事件最多保留 120 条；文件轮询运行中 2.5s / 空闲 6s；动作 `submitTask` / `cancelCurrentTask` / `uploadFiles` / `removeUploadedFile` / `resetSession` / `switchSession` / `deleteSession` / `refreshFiles`。
 
 ### A.6 运维与自测脚本（`scripts/`）
 
