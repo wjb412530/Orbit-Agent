@@ -222,6 +222,40 @@ async def upload_files(files: List[UploadFile] = File(...), thread_id: str = For
     return {"status": "uploaded", "files": saved_files}
 
 
+def _is_safe_component(value: str) -> bool:
+    """校验路径片段：非空、非点、且不含任何路径分隔符，防止路径穿越。"""
+    if not value or value in (".", ".."):
+        return False
+    return "/" not in value and "\\" not in value
+
+
+@app.delete("/api/upload/{thread_id}/{filename}")
+async def delete_uploaded_file(thread_id: str, filename: str):
+    """
+    删除指定会话已上传的文件。
+
+    安全约束：
+    - thread_id 与 filename 必须是单一路径片段，拒绝 `..` 与分隔符。
+    - 删除前用 `resolve()` + `is_relative_to()` 限定在会话目录内，双保险防穿越。
+    - 同时清理 `updated/`（上传暂存区）与 `output/`（任务工作区）两处副本。
+    """
+    if not _is_safe_component(thread_id) or not _is_safe_component(filename):
+        raise HTTPException(status_code=400, detail="非法的会话或文件名")
+
+    deleted = []
+    for base_dir in (updated_dir, output_dir):
+        session_abs = (base_dir / f"session_{thread_id}").resolve()
+        target = (session_abs / filename).resolve()
+        if target.is_relative_to(session_abs) and target.is_file():
+            try:
+                target.unlink()
+                deleted.append(str(target))
+            except OSError:
+                continue
+
+    return {"status": "deleted", "files": deleted}
+
+
 @app.get("/api/download")
 async def download_file(path: str):
     """

@@ -212,5 +212,5 @@ def get_security_config():
         "sql_timeout": int(os.getenv("SQL_QUERY_TIMEOUT", "5")),
         "sql_max_rows": int(os.getenv("SQL_MAX_ROWS", "100")),
         "max_upload_mb": int(os.getenv("MAX_UPLOAD_MB", "20")),
-        "allowed_extensions": os.getenv("ALLOWED_FILE_EXTENSIONS", ".txt,.md,.pdf,.docx,.xlsx,.csv,.jpg,.jpeg,.png,.webp"),
+        "allowed_extensions": os.getenv("ALLOWED_FILE_EXTENSIONS", ".txt,.md,.pdf,.docx,.xlsx,.csv,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.amr,.webm"),
     }

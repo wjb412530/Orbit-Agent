@@ -34,6 +34,8 @@ from app.tools.markdown_tools import generate_markdown
 from app.tools.pdf_tools import convert_md_to_pdf
 from app.tools.upload_file_read_tool import read_file_content
 from app.tools.image_tool import analyze_image
+from app.tools.generate_image_tool import generate_image
+from app.tools.transcribe_audio_tool import transcribe_audio
 
 # 主智能体是调度中心：
 # 1. tools 只放最终交付相关的文件工具
@@ -74,7 +76,7 @@ async def get_main_agent():
         _main_agent_instance = create_deep_agent(
             model=vl_model,
             system_prompt=main_agent_content["system_prompt"],
-            tools=[generate_markdown, convert_md_to_pdf, read_file_content, analyze_image],
+            tools=[generate_markdown, convert_md_to_pdf, read_file_content, analyze_image, generate_image, transcribe_audio],
             checkpointer=checkpointer,
             subagents=[database_query_agent, network_search_agent, knowledge_base_agent],
         )
