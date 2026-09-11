@@ -39,7 +39,7 @@ export function UploadPanel({ isUploading, onUpload, uploadedItems }: UploadPane
 
       <Dragger
         multiple
-        accept=".txt,.md,.pdf,.docx,.xlsx,.csv,.jpg,.jpeg,.png,.webp"
+        accept=".txt,.md,.pdf,.docx,.xlsx,.csv,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.amr,.webm"
         beforeUpload={() => false}
         className="upload-dropzone"
         onChange={(info) => {
@@ -54,7 +54,7 @@ export function UploadPanel({ isUploading, onUpload, uploadedItems }: UploadPane
           <InboxOutlined />
         </p>
         <p className="ant-upload-text">拖拽文件到会话输入区</p>
-        <p className="ant-upload-hint">支持 PDF、DOCX、Markdown、文本、图片（JPG / PNG / WebP）</p>
+        <p className="ant-upload-hint">支持 PDF、DOCX、Markdown、文本、图片、音频等格式</p>
       </Dragger>
 
       <Button

@@ -43,6 +43,10 @@ function FileIcon({ name }: { name: string }) {
   return <FileTextOutlined aria-hidden />;
 }
 
+function isImage(name: string): boolean {
+  return /\.(png|jpe?g|webp|gif|bmp)$/i.test(name);
+}
+
 interface FileDockProps {
   files: OutputFile[];
   onRefresh: () => void;
@@ -78,9 +82,18 @@ export function FileDock({ files, onRefresh, sessionPath }: FileDockProps) {
         <ul className="file-list">
           {files.map((file) => (
             <li className="file-item" key={file.path}>
-              <div className="file-icon">
-                <FileIcon name={file.name} />
-              </div>
+              {isImage(file.name) ? (
+                <img
+                  className="file-thumbnail"
+                  src={getDownloadUrl(file.path)}
+                  alt={file.name}
+                  loading="lazy"
+                />
+              ) : (
+                <div className="file-icon">
+                  <FileIcon name={file.name} />
+                </div>
+              )}
               <div className="file-copy">
                 <strong title={file.name}>{file.name}</strong>
                 <span>

@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { cancelTask, listSessionFiles, startTask, uploadSessionFiles } from "../lib/api";
+import {
+  cancelTask,
+  deleteUploadedFile,
+  listSessionFiles,
+  startTask,
+  uploadSessionFiles
+} from "../lib/api";
 import { WS_BASE_URL } from "../lib/config";
 import { createThreadId, getStoredThreadId, storeThreadId } from "../lib/thread";
+import {
+  DEFAULT_SESSION_TITLE,
+  loadSessions,
+  persistSessions,
+  removeSession,
+  renameSession,
+  titleFromQuery,
+  upsertSession,
+  type SessionSummary
+} from "../lib/sessions";
 import type {
   ConnectionState,
   MonitorMessage,
@@ -34,6 +50,7 @@ export function useDeepAgentSession() {
   const [isCancelling, setIsCancelling] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadedItems, setUploadedItems] = useState<UploadedItem[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>(loadSessions);
 
   const clearSocketTimers = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -60,6 +77,40 @@ export function useDeepAgentSession() {
     setIsRunning(false);
     setIsCancelling(false);
   }, []);
+
+  const switchSession = useCallback(
+    (nextThreadId: string) => {
+      if (nextThreadId === threadId) {
+        return;
+      }
+      storeThreadId(nextThreadId);
+      setThreadId(nextThreadId);
+      setEvents([]);
+      setFiles([]);
+      setSessionPath("");
+      setResult("");
+      setLastError("");
+      setUploadedItems([]);
+      uploadedNameSetRef.current.clear();
+      setIsRunning(false);
+      setIsCancelling(false);
+    },
+    [threadId]
+  );
+
+  const deleteSession = useCallback(
+    (targetThreadId: string) => {
+      setSessions((previous) => removeSession(previous, targetThreadId));
+      if (targetThreadId === threadId) {
+        resetSession();
+      }
+    },
+    [resetSession, threadId]
+  );
+
+  useEffect(() => {
+    persistSessions(sessions);
+  }, [sessions]);
 
   const refreshFiles = useCallback(async () => {
     if (!sessionPath) {
@@ -206,6 +257,21 @@ export function useDeepAgentSession() {
       setLastError("");
       try {
         const response = await startTask(cleanQuery, threadId);
+        setSessions((previous) => {
+          const current = previous.find((session) => session.threadId === threadId);
+          if (!current) {
+            // 首次提交才登记会话：无对话内容的会话不进入历史记录
+            return upsertSession(previous, {
+              threadId,
+              title: titleFromQuery(cleanQuery),
+              createdAt: new Date().toISOString()
+            });
+          }
+          if (current.title === DEFAULT_SESSION_TITLE) {
+            return renameSession(previous, threadId, titleFromQuery(cleanQuery));
+          }
+          return previous;
+        });
         if (response.thread_id && response.thread_id !== threadId) {
           storeThreadId(response.thread_id);
           setThreadId(response.thread_id);
@@ -283,6 +349,18 @@ export function useDeepAgentSession() {
     [threadId]
   );
 
+  const removeUploadedFile = useCallback(
+    async (filename: string) => {
+      try {
+        await deleteUploadedFile(threadId, filename);
+      } finally {
+        setUploadedItems((previous) => previous.filter((item) => item.name !== filename));
+        uploadedNameSetRef.current.delete(filename);
+      }
+    },
+    [threadId]
+  );
+
   const stats = useMemo(() => {
     const toolEvents = events.filter((event) => event.event === "tool_start").length;
     const assistantEvents = events.filter((event) => event.event === "assistant_call").length;
@@ -306,11 +384,15 @@ export function useDeepAgentSession() {
     lastError,
     lastPongAt,
     refreshFiles,
+    removeUploadedFile,
     resetSession,
     result,
     sessionPath,
+    sessions,
     stats,
+    switchSession,
     cancelCurrentTask,
+    deleteSession,
     submitTask,
     threadId,
     uploadFiles,

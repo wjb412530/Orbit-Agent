@@ -1,50 +1,41 @@
 import {
+  AudioOutlined,
+  DeleteOutlined,
   PaperClipOutlined,
-  PlusOutlined,
+  PlayCircleOutlined,
   SendOutlined,
   StopOutlined
 } from "@ant-design/icons";
 import { Button, Tooltip, Upload } from "antd";
 import type { UploadFile } from "antd";
+import { formatMediaDuration } from "../lib/audioRecording";
+import { useMediaInput } from "../hooks/useMediaInput";
 import type { UploadedItem } from "../types";
 
 interface ChatComposerProps {
   isCancelling: boolean;
   isRunning: boolean;
   isUploading: boolean;
-  onNewSession: () => void;
   onCancel: () => void;
+  onError: (message: string) => void;
   onQueryChange: (value: string) => void;
   onSubmit: () => void;
+  onSuggestedPrompt: (prompt: string) => void;
   onUpload: (items: UploadedItem[]) => Promise<void> | void;
+  onRemoveFile: (filename: string) => void;
   query: string;
-  stagedItems: UploadedItem[];
   uploadedItems: UploadedItem[];
-  onStagedItemsChange: (items: UploadedItem[]) => void;
 }
 
-function toUploadedItem(file: UploadFile): UploadedItem | null {
-  if (!file.originFileObj) {
-    return null;
-  }
-
-  return {
-    uid: file.uid,
-    name: file.name,
-    size: file.size || 0,
-    raw: file.originFileObj
-  };
-}
-
-function uniqueUploadedItems(items: UploadedItem[]): UploadedItem[] {
-  const names = new Set<string>();
-  return items.filter((item) => {
-    if (names.has(item.name)) {
-      return false;
+function extractFiles(info: { fileList: UploadFile[]; file: UploadFile }): File[] {
+  const entries = info.fileList.length > 0 ? info.fileList : [info.file];
+  const files: File[] = [];
+  entries.forEach((entry) => {
+    if (entry.originFileObj) {
+      files.push(entry.originFileObj);
     }
-    names.add(item.name);
-    return true;
   });
+  return files;
 }
 
 export function ChatComposer({
@@ -52,37 +43,48 @@ export function ChatComposer({
   isRunning,
   isUploading,
   onCancel,
-  onNewSession,
+  onError,
   onQueryChange,
-  onStagedItemsChange,
+  onRemoveFile,
   onSubmit,
+  onSuggestedPrompt,
   onUpload,
   query,
-  stagedItems,
   uploadedItems
 }: ChatComposerProps) {
-  const hasStagedFiles = stagedItems.length > 0;
-  const canSubmit = query.trim().length > 0;
-
-  function handleAttachmentChange(fileList: UploadFile[]) {
-    const nextItems = uniqueUploadedItems(
-      fileList
-        .map(toUploadedItem)
-        .filter((item): item is UploadedItem => Boolean(item))
-    );
-
-    if (nextItems.length === 0) {
-      return;
-    }
-
-    onStagedItemsChange(nextItems);
-    void Promise.resolve(onUpload(nextItems)).finally(() => {
-      onStagedItemsChange([]);
-    });
-  }
+  const canSubmit = query.trim().length > 0 || uploadedItems.length > 0;
+  const media = useMediaInput({ onUpload, onSuggestedPrompt, onError, onRemoveFile });
 
   return (
     <section className="chat-composer" aria-label="发送研搜任务">
+      {media.previews.length > 0 ? (
+        <div className="media-previews">
+          {media.previews.map((preview) => (
+            <div
+              className={`media-preview ${preview.kind === "audio" ? "media-preview--audio" : ""}`}
+              key={preview.id}
+            >
+              {preview.kind === "image" && preview.objectUrl ? (
+                <img src={preview.objectUrl} alt={preview.name} />
+              ) : (
+                <AudioOutlined aria-hidden />
+              )}
+              <span className="media-preview-name">{preview.name}</span>
+              <Tooltip title="移除">
+                <Button
+                  aria-label="移除"
+                  className="media-preview-remove"
+                  icon={<DeleteOutlined />}
+                  onClick={() => media.clearPreview(preview.id)}
+                  shape="circle"
+                  size="small"
+                />
+              </Tooltip>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {uploadedItems.length > 0 ? (
         <div className="attachment-strip" aria-label="当前会话附件">
           {uploadedItems.map((item) => (
@@ -91,18 +93,6 @@ export function ChatComposer({
               {item.name}
             </span>
           ))}
-        </div>
-      ) : null}
-
-      {hasStagedFiles ? (
-        <div className="attachment-strip" aria-label="待上传附件">
-          {stagedItems.map((item) => (
-            <span className="attachment-pill attachment-pill--pending" key={item.uid}>
-              <PaperClipOutlined aria-hidden />
-              {item.name}
-            </span>
-          ))}
-          {isUploading ? <span className="attachment-uploading">附着中...</span> : null}
         </div>
       ) : null}
 
@@ -123,23 +113,12 @@ export function ChatComposer({
 
         <div className="composer-toolbar">
           <div className="composer-left-actions">
-            <Tooltip title="新建会话">
-              <Button
-                aria-label="新建会话"
-                className="composer-icon-button"
-                icon={<PlusOutlined />}
-                onClick={onNewSession}
-                shape="circle"
-              />
-            </Tooltip>
             <Upload
+              accept={media.accept}
               beforeUpload={() => false}
-              accept=".txt,.md,.pdf,.docx,.xlsx,.csv,.jpg,.jpeg,.png,.webp"
               fileList={[]}
               multiple
-              onChange={(info) => {
-                handleAttachmentChange(info.fileList.length > 0 ? info.fileList : [info.file]);
-              }}
+              onChange={(info) => media.handleAttachment(extractFiles(info))}
               showUploadList={false}
             >
               <Tooltip title="选择附件">
@@ -154,18 +133,36 @@ export function ChatComposer({
             </Upload>
           </div>
 
-          <Tooltip title={isRunning ? "取消当前任务" : "发送任务"}>
-            <Button
-              aria-label={isRunning ? "取消当前任务" : "发送任务"}
-              className={isRunning ? "send-button send-button--cancel" : "send-button"}
-              disabled={isRunning ? isCancelling : !canSubmit}
-              icon={isRunning ? <StopOutlined /> : <SendOutlined />}
-              loading={isCancelling}
-              onClick={isRunning ? onCancel : onSubmit}
-              shape="circle"
-              type="primary"
-            />
-          </Tooltip>
+          <div className="composer-right-actions">
+            {media.recording ? (
+              <span className="media-recording" aria-live="polite">
+                <i aria-hidden />
+                {formatMediaDuration(media.recordingSeconds * 1000)}
+              </span>
+            ) : null}
+            <Tooltip title={media.recording ? "停止录音" : "录音"}>
+              <Button
+                aria-label={media.recording ? "停止录音" : "录音"}
+                className={media.recording ? "composer-icon-button recorder-button--recording" : "composer-icon-button"}
+                disabled={isRunning}
+                icon={media.recording ? <StopOutlined /> : <PlayCircleOutlined />}
+                onClick={() => void media.toggleRecording()}
+                shape="circle"
+              />
+            </Tooltip>
+            <Tooltip title={isRunning ? "取消当前任务" : "发送任务"}>
+              <Button
+                aria-label={isRunning ? "取消当前任务" : "发送任务"}
+                className={isRunning ? "send-button send-button--cancel" : "send-button"}
+                disabled={isRunning ? isCancelling : !canSubmit}
+                icon={isRunning ? <StopOutlined /> : <SendOutlined />}
+                loading={isCancelling}
+                onClick={isRunning ? onCancel : onSubmit}
+                shape="circle"
+                type="primary"
+              />
+            </Tooltip>
+          </div>
         </div>
       </div>
     </section>
