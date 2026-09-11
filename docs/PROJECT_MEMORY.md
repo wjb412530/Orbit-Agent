@@ -2,7 +2,7 @@
 
 > 本文件是项目完整的「记忆」沉淀：涵盖项目本质理解、技术栈、架构、实现流程、数据资产与完整迁移步骤。目标是让任何人在全新环境中仅凭本文件 + 仓库代码即可完成项目的完整重部署与运行。
 >
-> 更细粒度的函数级说明见 [CODE_WIKI.md](CODE_WIKI.md)。
+> 更细粒度的函数级与协议级说明见文末「附录：代码级补充说明」。
 
 ---
 
@@ -116,13 +116,12 @@ orbit-agent/
 │   ├── data/                     # SQLite checkpoint 数据库（运行期生成）
 │   ├── prompt/prompts.yml        # 主/子智能体提示词
 │   ├── ragflow/                  # RAGFlow 配置与调用示例
-│   ├── tools/                    # 九类 LangChain 工具
+│   ├── tools/                    # LangChain 工具（检索 + 文件 + 多模态）
 │   └── utils/                    # 缓存 / 安全 / 路径解析 / 文档转换
 ├── docker/                       # 本地 MySQL 教学环境
 │   ├── docker-compose.yaml
 │   └── mysql/mysql.sql           # 药品/库存/销售初始化数据
-├── docs/                         # 设计文档、CODE_WIKI、知识库示例
-├── examples/                     # DeepAgents 章节示例脚本（15 个）
+├── docs/                         # 设计文档、知识库示例
 ├── frontend/                     # React 前端
 ├── scripts/                      # 调试 / 测试 / 运维脚本
 ├── pyproject.toml                # Python 依赖与元信息
@@ -224,7 +223,7 @@ sequenceDiagram
 | `app/api/server.py` | `app`、`run_task`、`cancel_task`、`upload_files`、`download_file`、`list_files`、`list_sessions`、`websocket_endpoint` | FastAPI 路由与后台任务调度 |
 | `app/api/context.py` | `set/get/reset_session_context`、`set/get_thread_context` | 会话上下文 |
 | `app/api/monitor.py` | `ToolMonitor`、`ConnectionManager`、`monitor`、`manager` | 事件上报与 WebSocket |
-| `app/agent/llm.py` | `model` | 模型初始化 |
+| `app/agent/llm.py` | `model`、`vl_model` | 模型初始化（文本模型 + 多模态模型） |
 | `app/agent/prompts.py` | `main_agent_content`、`sub_agents_content` | 提示词加载 |
 | `app/agent/main_agent.py` | `get_checkpointer`、`get_main_agent`、`run_deep_agent` | 主智能体组装与执行入口 |
 | `app/agent/subagents/*.py` | `network_search_agent` / `database_query_agent` / `knowledge_base_agent` | 三个子智能体定义 |
@@ -234,6 +233,9 @@ sequenceDiagram
 | `app/tools/markdown_tools.py` | `generate_markdown` | 生成 Markdown |
 | `app/tools/pdf_tools.py` | `convert_md_to_pdf` | Markdown→PDF |
 | `app/tools/upload_file_read_tool.py` | `read_file_content` | 读上传文件 |
+| `app/tools/image_tool.py` | `analyze_image` | 图片理解（多模态模型） |
+| `app/tools/generate_image_tool.py` | `generate_image` | 文生图（qwen-image-3.0） |
+| `app/tools/transcribe_audio_tool.py` | `transcribe_audio` | 语音转写（qwen-audio-3.0-asr-flash） |
 | `app/utils/cache.py` | `get_redis_client` / `cache_get` / `cache_set` 等 | Redis 缓存 |
 | `app/utils/safety.py` | `validate_sql_query` / `limit_sql_rows` / `validate_table_name` / `validate_file_upload` / `get_security_config` | 安全校验 |
 | `app/utils/path_utils.py` | `resolve_path` | 路径解析 |
@@ -263,7 +265,8 @@ sequenceDiagram
 | --- | --- |
 | `OPENAI_BASE_URL` | OpenAI 兼容接口地址 |
 | `OPENAI_API_KEY` | 大模型密钥 |
-| `LLM_QWEN_MAX` | 模型名（默认 `qwen-max`） |
+| `LLM_QWEN_MAX` | 文本模型名（子智能体用，默认 `qwen-max`） |
+| `LLM_QWEN_VL` | 多模态模型名（主智能体图片理解用，默认 `qwen-vl-max`） |
 
 ### 8.2 检索
 
@@ -296,7 +299,7 @@ sequenceDiagram
 | `SQL_QUERY_TIMEOUT` | `5` | SQL 超时（秒） |
 | `SQL_MAX_ROWS` | `100` | 单次查询最大行数 |
 | `MAX_UPLOAD_MB` | `20` | 上传大小上限 |
-| `ALLOWED_FILE_EXTENSIONS` | `.txt,.md,.pdf,.docx,.xlsx,.csv` | 扩展名白名单 |
+| `ALLOWED_FILE_EXTENSIONS` | `.txt,.md,.pdf,.docx,.xlsx,.csv,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.aac,.flac,.ogg,.amr,.webm` | 扩展名白名单（文本 + 图片 + 音频） |
 
 ### 8.6 可观测性（LangSmith，可选）
 
@@ -317,6 +320,15 @@ sequenceDiagram
 | --- | --- |
 | `VITE_API_BASE_URL` | 后端地址（默认 `http://localhost:8000`） |
 | `VITE_WS_BASE_URL` | WebSocket 地址（默认由 API 地址推导） |
+
+### 8.9 多模态（图片生成 / 语音转写，可选）
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `QWEN_IMAGE_MODEL` | `qwen-image-3.0` | 文生图模型 |
+| `DASHSCOPE_IMAGE_URL` | `https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation` | 文生图接口 |
+| `QWEN_ASR_MODEL` | `qwen-audio-3.0-asr-flash` | 语音识别模型 |
+| `DASHSCOPE_ASR_URL` | 同文生图接口 | 语音识别接口 |
 
 ---
 
@@ -447,9 +459,10 @@ uv run python scripts/submit_test_task.py
 从数据库中查询心血管药品的库存情况，并生成 Markdown 报告。
 搜索 2026 年 AI 在电商行业的应用趋势，并结合知识库资料生成一份 PDF。
 请先读取我上传的行业报告，再结合公开资料整理一份研究摘要。
+上传一张产品图，描述图中内容并生成一张配图插画。
+上传一段会议录音，转写文字并整理成会议纪要。
 ```
 
-- **示例脚本**：`uv run python examples/1-deep-agent-quickstart-search.py`。
 - **自测脚本**（`scripts/`）：`test_security.py`、`test_redis_cache.py`、`test_checkpointer.py`、`test_sessions_api.py` 等。
 
 ---
@@ -463,7 +476,7 @@ uv run python scripts/submit_test_task.py
 5. **文件路径约束**：所有生成文件必须落在 `app/output/session_{thread_id}/`；读取上传文件时用文件名（不带路径前缀）。
 6. **同一 thread_id 串行**：同一 `thread_id` 同时只允许一个活跃任务，新任务会取消旧任务。
 7. **Redis 可选**：`REDIS_ENABLED=false` 时完全离线可用。
-8. **上传文件读取**：`read_file_content` 支持 `.md/.txt/.docx/.pdf/.xlsx/.xls`。
+8. **上传文件读取**：`read_file_content` 支持 `.md/.txt/.docx/.pdf/.xlsx/.xls`；图片由 `analyze_image` 理解，音频由 `transcribe_audio` 转写。
 
 ---
 
@@ -478,3 +491,118 @@ uv run python scripts/submit_test_task.py
 | 文件工具统一走 `resolve_path` | 防止模型使用任意绝对路径导致的越界读写 |
 | 缓存/观测/Redis 均可选且静默降级 | 保证最小依赖也能跑通 |
 | Markdown→PDF 用 ReportLab | 跨平台，不依赖 Word/浏览器 |
+| 主/子智能体分离使用不同模型 | 主智能体用多模态模型（看图/听音/生成），子智能体用文本模型（省成本） |
+| WebSocket 只传事件与文件 URL，二进制走 HTTP | 避免大文件（图片/音频）阻塞 WebSocket 消息 |
+
+---
+
+## 附录：代码级补充说明
+
+> 本节吸收自已删除的 CODE_WIKI.md，保留其函数级、协议级与开发模式细节。
+
+### A.1 API 端点清单（`app/api/server.py`）
+
+全局对象：
+
+- `app`：FastAPI 实例，绑定 lifespan
+- `active_tasks`：`dict[str, asyncio.Task]`，记录 `thread_id → 后台任务`，用于同会话任务替换与取消
+- `output_dir`：`app/output/`（各会话最终工作区）
+- `updated_dir`：`app/updated/`（上传文件暂存区）
+
+| 方法与路径 | 处理函数 | 说明 |
+| --- | --- | --- |
+| `POST /api/task` | `run_task` | 同 thread_id 只保留一个活跃任务，先 cancel 旧任务再 create_task |
+| `POST /api/task/{thread_id}/cancel` | `cancel_task` | 取消指定会话任务 |
+| `POST /api/upload` | `upload_files` | 上传到 updated/session_{thread_id}，validate_file_upload 校验后流式落盘 |
+| `GET /api/download` | `download_file` | 按路径下载，resolve + is_relative_to 限制在 output_dir |
+| `GET /api/files` | `list_files` | 递归列出目录文件元数据 |
+| `GET /api/sessions` | `list_sessions` | 从 checkpoint 库查询历史会话 |
+| `WS /ws/{thread_id}` | `websocket_endpoint` | 建立连接并处理心跳 |
+
+### A.2 WebSocket 事件协议
+
+payload 统一为 `{"type":"monitor_event","event":...,"message":...,"data":...,"timestamp":...}`；心跳响应 `{"type":"pong"}`。
+
+| event | 触发 | data |
+| --- | --- | --- |
+| `session_created` | 创建会话目录 | `{path}` |
+| `tool_start` | 工具开始 | `{tool_name, args}` |
+| `tool_end` | 工具结束 | `{tool_name, duration_ms, result}` |
+| `assistant_call` | 子智能体被调用 | `{assistant_name, args}` |
+| `assistant_end` | 子智能体结束 | `{assistant_name, duration_ms}` |
+| `task_result` | 主智能体产出结果 | `{result}` |
+| `task_cancelled` | 任务取消 | — |
+| `error` | 异常 | message 为错误信息 |
+
+### A.3 主智能体组装与执行
+
+`get_main_agent()` 懒加载主智能体，组装参数：
+
+```python
+create_deep_agent(
+    model=model,
+    system_prompt=main_agent_content["system_prompt"],
+    tools=[generate_markdown, convert_md_to_pdf, read_file_content],
+    checkpointer=checkpointer,
+    subagents=[database_query_agent, network_search_agent, knowledge_base_agent],
+)
+```
+
+`run_deep_agent(task_query, session_id)` 核心流程：
+
+1. 创建 `output/session_{session_id}` 工作目录
+2. 有上传文件则从 `updated/session_{id}` 经 `shutil.copy2` 复制进工作目录并注入「已上传文件」提示
+3. 写入 ContextVar，`monitor.report_session_dir` 上报目录
+4. `config={"configurable":{"thread_id": session_id}}`（checkpointer 会话隔离关键）
+5. 拼接「工作环境指令」约束只在会话目录读写
+6. `agent.astream(...)` 流式执行，`model` 节点中 `tool_call["name"] == "task"` 视为子智能体调用；纯文本内容视为最终结果
+7. 捕获 CancelledError / 异常，finally 恢复 ContextVar
+
+子智能体为「name / description / system_prompt / tools」字典对象，`description` 是主智能体的路由依据。
+
+### A.4 工具签名与归属
+
+| 工具 | 签名 | 归属 |
+| --- | --- | --- |
+| `internet_search` | `(query, topic, max_results, include_raw_content)` | 网络搜索助手（带 Redis 缓存） |
+| `list_sql_tables` | `()` | 数据库助手（SHOW TABLES） |
+| `get_table_data` | `(table_name)` | 数据库助手（预览前 N 行，CSV 返回） |
+| `execute_sql_query` | `(query)` | 数据库助手（仅 SELECT/SHOW） |
+| `get_assistant_list` | `()` | RAGFlow 助手（列出聊天助手及绑定知识库） |
+| `create_ask_delete` | `(chat_name, question)` | RAGFlow 助手（建临时会话提问后删除） |
+| `generate_markdown` | `(content, filename, path)` | 主智能体 |
+| `convert_md_to_pdf` | `(md_filename, pdf_filename)` | 主智能体 |
+| `read_file_content` | `(filename, instruction)` | 主智能体（md/txt/docx/pdf/xlsx） |
+
+### A.5 前端组件清单
+
+| 组件 | 说明 | 是否接入 App |
+| --- | --- | --- |
+| `ChatComposer` | 输入框 + 文件上传 + 提交/取消 | ✅ |
+| `ConversationThread` | 对话轮次（ChatTurn），含 MarkdownRenderer | ✅ |
+| `MarkdownRenderer` | react-markdown + remark-gfm | ✅ |
+| `EventStream` | 事件流展示 | 辅助 |
+| `FileDock` | 文件列表 + 下载 | 辅助 |
+| `ResultPanel` | 结果展示 + 复制 | 辅助 |
+| `StatusStrip` | 连接状态条 | 辅助 |
+| `UploadPanel` | 上传面板 | 辅助 |
+| `AgentTopology` | 子智能体拓扑展示 | 辅助 |
+| `MissionComposer` | 早期任务输入 | 辅助 |
+
+`useDeepAgentSession` 要点：WS 25s 心跳、断线 2s 重连；事件最多保留 120 条；文件轮询运行中 2.5s / 空闲 6s；动作 `submitTask` / `cancelCurrentTask` / `uploadFiles` / `resetSession` / `refreshFiles`。
+
+### A.6 运维与自测脚本（`scripts/`）
+
+- checkpoint 相关：`init_checkpointer_db.py`、`clean_checkpoints.py`、`query_checkpoints.py`、`view_checkpoints.py`、`trace_query.py`
+- 自测脚本：`test_security.py`、`test_redis_cache.py`、`test_checkpointer.py`、`test_astream_checkpointer.py`、`test_sessions_api.py`、`test_baseline.py`、`test_port_8001.py`
+- 端口清理：`kill_port_8000.py`、`kill_port_8001.py`
+- 示例任务提交：`submit_test_task.py`
+
+### A.7 扩展点与开发模式
+
+- 新增工具：在 `app/tools/` 用 `@tool` 写函数 → 在 subagents 或 main_agent 的 `tools=[]` 导入并添加 → 在 prompts.yml 更新提示词。
+- 新增子智能体：在 `app/agent/subagents/` 建字典对象 → main_agent 的 `subagents=[]` 添加 → prompts.yml 的 `sub_agents` 新增段。
+- 取上下文：`from app.api.context import get_session_context, get_thread_context`。
+- 上报事件：`monitor.report_tool(...)` / `report_assistant(...)` / `report_task_result(...)` / `report_task_cancelled()` / `_emit("error", ...)`。
+- MySQL 数据模型：`drugs`（`drug_id` PK + `generic_name` / `brand_name` / `approval_number` / `specifications` / `dosage_form` / `manufacturer` / `therapeutic_area` / `description`，50 条）、`inventory`（关联 drug_id，150 条）、`sales_records`（关联 drug_id，100 条）。
+- 路线图：已完成阶段 0~4（CI 骨架 / 检索缓存 / 安全防护 / 可观测性 / 会话持久化），待实现阶段 5 并发治理（Semaphore）、阶段 7 评测体系。
