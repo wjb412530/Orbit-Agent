@@ -1,20 +1,10 @@
-import {
-  ApiOutlined,
-  BranchesOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  CloudServerOutlined,
-  DatabaseOutlined,
-  DeleteOutlined,
-  FileSearchOutlined,
-  ToolOutlined
-} from "@ant-design/icons";
+import { DeleteOutlined } from "@ant-design/icons";
 import { Alert, App as AntApp, Button, Popconfirm } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { ChatComposer } from "./components/ChatComposer";
 import { ConversationThread } from "./components/ConversationThread";
 import type { ChatTurn } from "./components/ConversationThread";
-import { API_BASE_URL, WS_BASE_URL } from "./lib/config";
+import { ToolChips } from "./components/ToolChips";
 import { historyToTurns, loadThreadHistory, saveThreadHistory, turnsToHistory } from "./lib/history";
 import { buildMediaPrompt } from "./lib/media";
 import { relativeTime } from "./lib/sessions";
@@ -46,6 +36,7 @@ function createTurn(content: string): ChatTurn {
 export default function App() {
   const { message } = AntApp.useApp();
   const [query, setQuery] = useState("");
+  const [autofocusToken, setAutofocusToken] = useState(0);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const turnsRef = useRef<ChatTurn[]>(turns);
   const streamRef = useRef<HTMLElement | null>(null);
@@ -157,6 +148,11 @@ export default function App() {
     setQuery((current) => (current.trim() ? current : prompt));
   }
 
+  function handleUseTool(prompt: string) {
+    setQuery(prompt);
+    setAutofocusToken((current) => current + 1);
+  }
+
   function handleRemoveFile(filename: string) {
     session.removeUploadedFile(filename).catch((error) => {
       message.error(error instanceof Error ? error.message : "删除文件失败");
@@ -263,53 +259,6 @@ export default function App() {
             ))}
           </ul>
         </div>
-
-        <div className="sidebar-status-list">
-          <div className={`sidebar-status ${online ? "sidebar-status--online" : "sidebar-status--warn"}`}>
-            <ApiOutlined aria-hidden />
-            <span>WebSocket</span>
-            <strong>{connectionLabel(session.connectionState)}</strong>
-          </div>
-          <div className="sidebar-status">
-            <BranchesOutlined aria-hidden />
-            <span>助手调度</span>
-            <strong>{session.stats.assistantEvents}</strong>
-          </div>
-          <div className="sidebar-status">
-            <ToolOutlined aria-hidden />
-            <span>工具调用</span>
-            <strong>{session.stats.toolEvents}</strong>
-          </div>
-          <div className={session.stats.errorEvents > 0 ? "sidebar-status sidebar-status--error" : "sidebar-status"}>
-            <CloseCircleOutlined aria-hidden />
-            <span>异常</span>
-            <strong>{session.stats.errorEvents}</strong>
-          </div>
-        </div>
-
-        <div className="sidebar-section">
-          <span className="sidebar-label">AGENTS</span>
-          <ul className="agent-mini-list">
-            <li>
-              <CloudServerOutlined aria-hidden />
-              网络搜索助手
-            </li>
-            <li>
-              <DatabaseOutlined aria-hidden />
-              数据库查询助手
-            </li>
-            <li>
-              <FileSearchOutlined aria-hidden />
-              RAGFlow 助手
-            </li>
-          </ul>
-        </div>
-
-        <div className="sidebar-section sidebar-endpoints">
-          <span className="sidebar-label">ENDPOINTS</span>
-          <code>{API_BASE_URL}</code>
-          <code>{WS_BASE_URL}</code>
-        </div>
       </aside>
 
       <main className="chat-main">
@@ -318,9 +267,17 @@ export default function App() {
             <span className="panel-kicker">CHAT WORKSPACE</span>
             <h2>枢弈对话</h2>
           </div>
-          <div className={`run-indicator ${session.isRunning ? "run-indicator--live" : ""}`}>
-            {session.isRunning ? <BranchesOutlined aria-hidden /> : <CheckCircleOutlined aria-hidden />}
-            {session.isRunning ? "研搜中" : "待命"}
+          <div
+            className={`topbar-status ${
+              session.isRunning
+                ? "topbar-status--running"
+                : online
+                  ? "topbar-status--online"
+                  : "topbar-status--offline"
+            }`}
+          >
+            <i className="status-dot" aria-hidden />
+            <span>{session.isRunning ? "研搜中" : connectionLabel(session.connectionState)}</span>
           </div>
         </header>
 
@@ -334,13 +291,15 @@ export default function App() {
         ) : null}
 
         <section className="chat-stream-panel" ref={streamRef}>
+          <ToolChips onUseTool={handleUseTool} />
           <ConversationThread
-            onUseExample={setQuery}
+            onUseExample={handleSuggestedPrompt}
             turns={turns}
           />
         </section>
 
         <ChatComposer
+          autoFocusToken={autofocusToken}
           isCancelling={session.isCancelling}
           isRunning={session.isRunning}
           isUploading={session.isUploading}

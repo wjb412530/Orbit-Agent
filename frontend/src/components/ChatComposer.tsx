@@ -8,11 +8,13 @@ import {
 } from "@ant-design/icons";
 import { Button, Tooltip, Upload } from "antd";
 import type { UploadFile } from "antd";
+import { useEffect, useRef } from "react";
 import { formatMediaDuration } from "../lib/audioRecording";
 import { useMediaInput } from "../hooks/useMediaInput";
 import type { UploadedItem } from "../types";
 
 interface ChatComposerProps {
+  autoFocusToken?: number;
   isCancelling: boolean;
   isRunning: boolean;
   isUploading: boolean;
@@ -39,6 +41,7 @@ function extractFiles(info: { fileList: UploadFile[]; file: UploadFile }): File[
 }
 
 export function ChatComposer({
+  autoFocusToken = 0,
   isCancelling,
   isRunning,
   isUploading,
@@ -54,6 +57,13 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const canSubmit = query.trim().length > 0 || uploadedItems.length > 0;
   const media = useMediaInput({ onUpload, onSuggestedPrompt, onError, onRemoveFile });
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (autoFocusToken > 0) {
+      textareaRef.current?.focus();
+    }
+  }, [autoFocusToken]);
 
   return (
     <section className="chat-composer" aria-label="发送研搜任务">
@@ -108,6 +118,7 @@ export function ChatComposer({
             }
           }}
           placeholder="向 Orbit Agent 发送任务..."
+          ref={textareaRef}
           value={query}
         />
 
