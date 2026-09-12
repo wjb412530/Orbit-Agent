@@ -31,12 +31,14 @@
 
 核心能力：输入一个研究任务，由一个**主智能体**负责任务规划与调度，三个**专家子智能体**分别从三类信息源检索数据，最终汇总生成 **Markdown / PDF** 交付物，全过程通过 **WebSocket** 实时推送到 React 前端。
 
+前端提供**插拔式工具开关**：联网搜索 / 数据库查询 / RAGFlow 知识库 / PDF 报告四个开关默认全关，用户点选后随任务提交到后端，后端**真裁剪**对应能力（未开启的子智能体/交付工具完全不注册），见 §6.9。
+
 | 角色 | 职责 | 持有的工具 |
 | --- | --- | --- |
-| 主智能体（main agent） | 任务规划、子智能体调度、结果汇总、文件交付 | `read_file_content` / `generate_markdown` / `convert_md_to_pdf` |
-| 网络搜索助手 | 检索互联网公开信息 | `internet_search`（Tavily） |
-| 数据库查询助手 | 查询 MySQL 结构化业务数据 | `list_sql_tables` / `get_table_data` / `execute_sql_query` |
-| RAGFlow 助手 | 检索企业私有知识库（非结构化文档） | `get_assistant_list` / `create_ask_delete` |
+| 主智能体（main agent） | 任务规划、子智能体调度、结果汇总、文件交付 | 基础工具恒可用：`read_file_content` / `analyze_image` / `generate_image` / `transcribe_audio`；`generate_markdown` / `convert_md_to_pdf` 仅在「PDF 报告」开关开启时注册 |
+| 网络搜索助手 | 检索互联网公开信息 | `internet_search`（Tavily），「联网搜索」开关控制 |
+| 数据库查询助手 | 查询 MySQL 结构化业务数据 | `list_sql_tables` / `get_table_data` / `execute_sql_query`，「数据库查询」开关控制 |
+| RAGFlow 助手 | 检索企业私有知识库（非结构化文档） | `get_assistant_list` / `create_ask_delete`，「RAGFlow 知识库」开关控制 |
 
 典型任务示例：
 
@@ -75,11 +77,12 @@ flowchart TD
     FE <-->|WebSocket /ws/{thread_id}| WS[ConnectionManager<br/>app/api/monitor.py]
 
     API -->|asyncio.create_task| RUN[run_deep_agent<br/>app/agent/main_agent.py]
-    RUN --> MA[主智能体 DeepAgent<br/>create_deep_agent]
-    MA -->|subagents| SUB1[网络搜索助手]
-    MA -->|subagents| SUB2[数据库查询助手]
-    MA -->|subagents| SUB3[RAGFlow 助手]
-    MA -->|tools| FILE[文件工具<br/>read / generate_markdown / convert_md_to_pdf]
+    RUN --> CFG[resolve_agent_config<br/>app/agent/agent_config.py 按开关真裁剪]
+    CFG --> MA[主智能体 DeepAgent<br/>create_deep_agent 按组合缓存]
+    MA -.可选.->|subagents| SUB1[网络搜索助手]
+    MA -.可选.->|subagents| SUB2[数据库查询助手]
+    MA -.可选.->|subagents| SUB3[RAGFlow 助手]
+    MA -->|tools| FILE[文件工具<br/>基础工具恒可用 + PDF 开关控制交付工具]
 
     SUB1 -->|internet_search| TAVILY[Tavily API]
     SUB2 -->|list/get/execute| MYSQL[MySQL deepsearch_db]
@@ -106,8 +109,9 @@ orbit-agent/
 ├── app/                          # 后端主包
 │   ├── agent/                    # 智能体组装
 │   │   ├── subagents/            # 三个子智能体定义
+│   │   ├── agent_config.py       # 插拔开关 → (tools, subagents) 装配 + 动态提示段
 │   │   ├── llm.py                # 模型初始化
-│   │   ├── main_agent.py         # 主智能体组装 + run_deep_agent 执行入口
+│   │   ├── main_agent.py         # 主智能体按组合缓存 + run_deep_agent 执行入口
 │   │   └── prompts.py            # 提示词加载
 │   ├── api/                      # HTTP/WebSocket 接口层
 │   │   ├── context.py            # ContextVar 会话上下文
@@ -124,6 +128,7 @@ orbit-agent/
 ├── docs/                         # 设计文档、知识库示例
 ├── frontend/                     # React 前端
 ├── scripts/                      # 调试 / 测试 / 运维脚本
+├── tests/                        # 后端 unittest（tool 开关装配纯函数）
 ├── pyproject.toml                # Python 依赖与元信息
 ├── uv.lock                       # uv 锁文件
 └── .env.example                  # 环境变量模板
@@ -145,12 +150,13 @@ sequenceDiagram
     participant TOOL as 工具
     participant WS as monitor
 
-    U->>API: POST /api/task {query, thread_id}
+    U->>API: POST /api/task {query, thread_id, tools}
     API->>RUN: asyncio.create_task(run_deep_agent(...))
     API-->>U: {status: started, thread_id}
 
     RUN->>RUN: 创建 output/session_{id}，复制上传文件
     RUN->>RUN: 写入 ContextVar(session_dir, thread_id)
+    RUN->>RUN: tools 白名单过滤 → 按组合取/建主智能体实例
     RUN->>WS: report_session_dir
     RUN->>MA: agent.astream(messages + 工作目录指令)
 
@@ -166,10 +172,11 @@ sequenceDiagram
 
 ### 5.2 主智能体的执行约束（prompts.yml 中定义）
 
-1. 必须**先调用子智能体**获取信息，**再**调用文件生成工具。
-2. 禁止在未获取信息前调用 `generate_markdown`。
+1. **启用了信息检索助手时**，必须先调用可用子智能体获取信息，**再**调用文件生成工具；全部关闭时基于自身知识与上传文件作答。
+2. 禁止在未获取信息前调用 `generate_markdown`（未开启「PDF 报告」开关时该工具根本不可用）。
 3. 涉及生成文档时，Markdown 用 `generate_markdown`，PDF 需先生成 Markdown 再 `convert_md_to_pdf`。
 4. 文档内容不少于 1000 字，且只允许在指定会话目录读写文件。
+5. 每次任务开始时系统注入【本次可用能力】清单，清单之外的能力不得调用。
 
 ---
 
@@ -220,7 +227,19 @@ sequenceDiagram
 - 历史记录仅保留有真实对话内容的会话：点击「新建对话」不产生占位条目，仅首次成功提交消息（含文本/图片/音频附件）时以消息首句为标题登记会话；加载时过滤标题为「新对话」的遗留占位条目。
 - 切换会话：先保存当前对话 → `switchSession` 切换 thread_id（WS 重连，后端 checkpoint 断点续跑）→ 从 localStorage 恢复消息展示；任务完成时立即持久化，防直接刷新丢失。
 - 删除会话：条目 hover 右上角显示删除按钮（Popconfirm 确认），`removeSession` 移除列表项 + `saveThreadHistory(id, [])` 清空对话记忆（空数组即删除该会话条目）；删除当前会话时先取消运行中任务并重置到新会话，后端 session 文件目录不删除。
-- 前端测试：vitest（`pnpm test`），覆盖 sessions / history / media / audioRecording 四个模块。
+- 前端测试：vitest（`pnpm test`），覆盖 sessions / history / media / audioRecording / toolShelf 五个模块。
+
+### 6.9 工具插拔开关（真裁剪）
+
+- 前端 `ToolChips` 组件把四个工具渲染为 toggle 开关（`aria-pressed`，选中=品牌蓝实心，未选中=灰色），点击只切状态、不预填输入框；默认全关、允许零工具提交、切换/新建会话时重置（不持久化）。
+- 提交时 `serializeTools(enabled)` 序列化为白名单数组，经 `startTask(query, threadId, tools)` 随 `POST /api/task` 送后端。
+- 后端 `app/agent/agent_config.py` 集中装配：
+  - `ALLOWED_TOOL_KINDS = {network, database, ragflow, pdf}`（白名单，非法值静默过滤）
+  - `BASE_TOOLS`（读文件/看图/生成图片/转写音频）恒注册，不受开关管控
+  - `pdf` 开关映射 `generate_markdown + convert_md_to_pdf`；`network/database/ragflow` 各映射一个字典式子智能体
+  - `resolve_agent_config(frozenset)` 纯函数返回 `(tools, subagents)`；`build_system_prompt(frozenset)` 注入【本次可用能力】动态提示段
+- `get_main_agent(enabled)` 按组合懒缓存（key=frozenset，最多 16 组合），`AsyncSqliteSaver` 全局共享，即每组合只构建一次 graph。
+- 理论上同一 thread_id 的对话可跨组合续跑（checkpointer 共享），但前端会话切换会重置开关，需注意历史会话断点续跑时开关状态与 checkpoint 中注册工具的一致性由用户重新点选保证。
 
 ---
 
@@ -233,7 +252,8 @@ sequenceDiagram
 | `app/api/monitor.py` | `ToolMonitor`、`ConnectionManager`、`monitor`、`manager` | 事件上报与 WebSocket |
 | `app/agent/llm.py` | `model`、`vl_model` | 模型初始化（文本模型 + 多模态模型） |
 | `app/agent/prompts.py` | `main_agent_content`、`sub_agents_content` | 提示词加载 |
-| `app/agent/main_agent.py` | `get_checkpointer`、`get_main_agent`、`run_deep_agent` | 主智能体组装与执行入口 |
+| `app/agent/agent_config.py` | `ALLOWED_TOOL_KINDS`、`BASE_TOOLS`、`PDF_TOOLS`、`resolve_agent_config`、`build_system_prompt` | 插拔开关 → (tools, subagents) 装配 + 动态提示段 |
+| `app/agent/main_agent.py` | `get_checkpointer`、`get_main_agent(enabled)`、`run_deep_agent(query, session_id, enabled_tools)` | 主智能体按组合缓存组装与执行入口 |
 | `app/agent/subagents/*.py` | `network_search_agent` / `database_query_agent` / `knowledge_base_agent` | 三个子智能体定义 |
 | `app/tools/tavily_tool.py` | `internet_search` | 网络搜索 |
 | `app/tools/db_tools.py` | `list_sql_tables` / `get_table_data` / `execute_sql_query` / `get_db_config` | 数据库查询 |
@@ -255,10 +275,12 @@ sequenceDiagram
 
 | 文件 | 关键符号 | 职责 |
 | --- | --- | --- |
-| `frontend/src/hooks/useDeepAgentSession.ts` | `useDeepAgentSession` | 会话状态、WebSocket、文件刷新、会话切换/删除 |
-| `frontend/src/lib/api.ts` | `startTask` / `cancelTask` / `uploadSessionFiles` / `deleteUploadedFile` / `listSessionFiles` / `getDownloadUrl` | REST 封装 |
+| `frontend/src/hooks/useDeepAgentSession.ts` | `useDeepAgentSession` | 会话状态、WebSocket、文件刷新、会话切换/删除、`submitTask(query, tools)` |
+| `frontend/src/lib/api.ts` | `startTask(query, threadId, tools)` / `cancelTask` / `uploadSessionFiles` / `deleteUploadedFile` / `listSessionFiles` / `getDownloadUrl` | REST 封装 |
 | `frontend/src/lib/config.ts` | `API_BASE_URL` / `WS_BASE_URL` | 环境配置 |
 | `frontend/src/lib/thread.ts` | `createThreadId` / `getStoredThreadId` / `storeThreadId` | thread_id 管理 |
+| `frontend/src/lib/toolShelf.ts` | `ToolKind`、`TOOL_SHELF`、`serializeTools` | 工具定义与开关序列化 |
+| `frontend/src/components/ToolChips.tsx` | `ToolChips(enabled, onToggle)` | 插拔式工具开关组（在输入框工具栏，附件按钮右侧） |
 | `frontend/src/lib/sessions.ts` | `loadSessions` / `persistSessions` / `upsertSession` / `renameSession` / `removeSession` / `filterMeaningfulSessions` / `titleFromQuery` / `relativeTime` | 会话列表（localStorage） |
 | `frontend/src/lib/history.ts` | `turnsToHistory` / `historyToTurns` / `loadThreadHistory` / `saveThreadHistory` / `capHistory` | 对话记忆（localStorage） |
 | `frontend/src/lib/media.ts` | `categorizeMedia` / `buildImagePrompt` / `buildAudioPrompt` / `buildMediaPrompt` | 多模态附件分类与提示构造 |
@@ -465,8 +487,9 @@ uv run python scripts/submit_test_task.py
 ## 12. 验证方式
 
 - **后端**：`POST /api/task` 能返回 `{"status":"started","thread_id":...}`，且 WebSocket 能收到 `session_created` / `tool_start` / `task_result` 等事件。
-- **前端**：打开 `http://localhost:5173`，侧边栏显示「WebSocket 已连接」，提交任务后能看到事件流与文件列表；侧边栏「历史记录」可切换与删除会话。
-- **前端单测**：`cd frontend && pnpm test`（vitest，覆盖 sessions / history / media / audioRecording）。
+- **后端单测**：`uv run python -m unittest tests.test_agent_config -v`（工具开关装配纯函数，7 个用例）。
+- **前端**：打开 `http://localhost:5173`，侧边栏显示「WebSocket 已连接」，提交任务后能看到事件流与文件列表；侧边栏「历史记录」可切换与删除会话；输入框工具栏的四个工具 chips 为插拔开关（点击选中变蓝实心，提交后仅启用选中能力）。
+- **前端单测**：`cd frontend && pnpm test`（vitest，覆盖 sessions / history / media / audioRecording / toolShelf）。
 - **示例任务**：
 
 ```text
@@ -499,6 +522,8 @@ uv run python scripts/submit_test_task.py
 | 决策 | 理由 |
 | --- | --- |
 | 主智能体不直接持检索工具，通过子智能体隔离 | 控制上下文规模，信息获取逻辑内聚 |
+| 工具插拔开关后端真裁剪（按组合缓存 agent 实例） | 关闭的能力完全无法被调用（非软提示），组合最多 16 种、构建成本一次性摊销 |
+| 前端工具 chips 只切开关不预填话术 | 对齐豆包式交互：能力随任务开关点选，而非生成固定提示 |
 | 用 `ContextVar` 传会话上下文 | 深层工具无需层层传参，并发会话互不串台 |
 | 事件统一走 `monitor` + WebSocket | 前端实时观察执行过程，解耦上报与展示 |
 | `InMemorySaver` → `AsyncSqliteSaver` | 会话持久化，支持断点恢复 |
@@ -525,7 +550,7 @@ uv run python scripts/submit_test_task.py
 
 | 方法与路径 | 处理函数 | 说明 |
 | --- | --- | --- |
-| `POST /api/task` | `run_task` | 同 thread_id 只保留一个活跃任务，先 cancel 旧任务再 create_task |
+| `POST /api/task` | `run_task` | 请求体 `{query, thread_id?, tools?: []}`；tools 为插拔开关白名单（network/database/ragflow/pdf），非法值静默过滤、缺省=全关；同 thread_id 只保留一个活跃任务，先 cancel 旧任务再 create_task |
 | `POST /api/task/{thread_id}/cancel` | `cancel_task` | 取消指定会话任务 |
 | `POST /api/upload` | `upload_files` | 上传到 updated/session_{thread_id}，validate_file_upload 校验后流式落盘 |
 | `DELETE /api/upload/{thread_id}/{filename}` | `delete_uploaded_file` | 删除会话已上传文件（thread_id/filename 限单路径片段，拒绝 `..` 与分隔符） |
@@ -551,34 +576,35 @@ payload 统一为 `{"type":"monitor_event","event":...,"message":...,"data":...,
 
 ### A.3 主智能体组装与执行
 
-`get_main_agent()` 懒加载主智能体，组装参数：
+`get_main_agent(enabled)` 按启停组合懒缓存主智能体实例（最多 16 组合），组装由 `app/agent/agent_config.py` 驱动：
 
 ```python
-create_deep_agent(
-    model=vl_model,  # 主智能体使用多模态模型（文本/图片理解/文生图/语音转写统一由主智能体调度）
-    system_prompt=main_agent_content["system_prompt"],
-    tools=[
-        generate_markdown,
-        convert_md_to_pdf,
-        read_file_content,
-        analyze_image,
-        generate_image,
-        transcribe_audio,
-    ],
-    checkpointer=checkpointer,
-    subagents=[database_query_agent, network_search_agent, knowledge_base_agent],
-)
+# app/agent/agent_config.py 核心装配
+ALLOWED_TOOL_KINDS = {"network", "database", "ragflow", "pdf"}
+BASE_TOOLS = [read_file_content, analyze_image, generate_image, transcribe_audio]  # 恒注册
+PDF_TOOLS = [generate_markdown, convert_md_to_pdf]                                  # pdf 开关控制
+
+def resolve_agent_config(enabled: frozenset) -> tuple[list, list]:
+    """返回 (tools, subagents)，非法 kind 静默过滤。"""
+
+def build_system_prompt(enabled: frozenset) -> str:
+    """yml 主提示词 + 【本次可用能力】动态段。"""
+
+# app/agent/main_agent.py
+_agent_cache: dict[frozenset, agent] = {}   # 按组合缓存，checkpointer 全局共享
+async def get_main_agent(enabled=None):     # 未命中缓存才 create_deep_agent
 ```
 
-`run_deep_agent(task_query, session_id)` 核心流程：
+`run_deep_agent(task_query, session_id, enabled_tools=None)` 核心流程：
 
-1. 创建 `output/session_{session_id}` 工作目录
-2. 有上传文件则从 `updated/session_{id}` 经 `shutil.copy2` 复制进工作目录并注入「已上传文件」提示
-3. 写入 ContextVar，`monitor.report_session_dir` 上报目录
-4. `config={"configurable":{"thread_id": session_id}}`（checkpointer 会话隔离关键）
-5. 拼接「工作环境指令」约束只在会话目录读写
-6. `agent.astream(...)` 流式执行，`model` 节点中 `tool_call["name"] == "task"` 视为子智能体调用；纯文本内容视为最终结果
-7. 捕获 CancelledError / 异常，finally 恢复 ContextVar
+1. `enabled_kinds = frozenset(enabled_tools or ())`
+2. 创建 `output/session_{session_id}` 工作目录
+3. 有上传文件则从 `updated/session_{id}` 经 `shutil.copy2` 复制进工作目录并注入「已上传文件」提示
+4. 写入 ContextVar，`monitor.report_session_dir` 上报目录
+5. `config={"configurable":{"thread_id": session_id}}`（checkpointer 会话隔离关键）
+6. 拼接「工作环境指令」约束只在会话目录读写
+7. `agent = await get_main_agent(enabled_kinds)`，随后 `agent.astream(...)` 流式执行，`model` 节点中 `tool_call["name"] == "task"` 视为子智能体调用；纯文本内容视为最终结果
+8. 捕获 CancelledError / 异常，finally 恢复 ContextVar
 
 子智能体为「name / description / system_prompt / tools」字典对象，`description` 是主智能体的路由依据。
 
@@ -603,7 +629,8 @@ create_deep_agent(
 
 | 组件 | 说明 | 是否接入 App |
 | --- | --- | --- |
-| `ChatComposer` | 输入框 + 附件（图片/音频/文档）+ 录音 + 提交/取消 | ✅ |
+| `ChatComposer` | 输入框 + 工具开关 chips + 附件（图片/音频/文档）+ 录音 + 提交/取消 | ✅ |
+| `ToolChips` | 四个工具的插拔开关组（位于输入框工具栏、附件按钮右侧） | ✅ |
 | `ConversationThread` | 对话轮次（ChatTurn），含 MarkdownRenderer | ✅ |
 | `MarkdownRenderer` | react-markdown + remark-gfm | ✅ |
 | `EventStream` | 事件流展示 | 辅助 |
@@ -625,8 +652,8 @@ create_deep_agent(
 
 ### A.7 扩展点与开发模式
 
-- 新增工具：在 `app/tools/` 用 `@tool` 写函数 → 在 subagents 或 main_agent 的 `tools=[]` 导入并添加 → 在 prompts.yml 更新提示词。
-- 新增子智能体：在 `app/agent/subagents/` 建字典对象 → main_agent 的 `subagents=[]` 添加 → prompts.yml 的 `sub_agents` 新增段。
+- 新增工具：在 `app/tools/` 用 `@tool` 写函数 → 按归属挂到 `app/agent/agent_config.py` 的 `BASE_TOOLS`（恒可用）或 `PDF_TOOLS`（随 pdf 开关）→ 在 prompts.yml 更新提示词。若工具应受独立开关控制，需同时扩展前端 `toolShelf.ts`/`ToolChips` 与后端 `ALLOWED_TOOL_KINDS`。
+- 新增子智能体：在 `app/agent/subagents/` 建字典对象 → `agent_config.py` 的 `SUBAGENT_BY_KIND` 注册开关映射（必要时扩展 `ALLOWED_TOOL_KINDS` 与前端 toolShelf）→ prompts.yml 的 `sub_agents` 新增段。
 - 取上下文：`from app.api.context import get_session_context, get_thread_context`。
 - 上报事件：`monitor.report_tool(...)` / `report_assistant(...)` / `report_task_result(...)` / `report_task_cancelled()` / `_emit("error", ...)`。
 - MySQL 数据模型：`drugs`（`drug_id` PK + `generic_name` / `brand_name` / `approval_number` / `specifications` / `dosage_form` / `manufacturer` / `therapeutic_area` / `description`，50 条）、`inventory`（关联 drug_id，150 条）、`sales_records`（关联 drug_id，100 条）。
