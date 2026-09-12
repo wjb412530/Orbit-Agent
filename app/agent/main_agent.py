@@ -17,11 +17,8 @@ from pathlib import Path
 from deepagents import create_deep_agent
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from app.agent.agent_config import build_system_prompt, resolve_agent_config
 from app.agent.llm import vl_model
-from app.agent.prompts import main_agent_content
-from app.agent.subagents.database_query_agent import database_query_agent
-from app.agent.subagents.knowledge_base_agent import knowledge_base_agent
-from app.agent.subagents.network_search_agent import network_search_agent
 from app.api.context import (
     reset_session_context,
     set_session_context,
@@ -29,18 +26,9 @@ from app.api.context import (
 )
 from app.api.monitor import monitor
 
-# 文件类工具由主智能体直接掌握，负责读取上传附件和生成最终交付文档
-from app.tools.markdown_tools import generate_markdown
-from app.tools.pdf_tools import convert_md_to_pdf
-from app.tools.upload_file_read_tool import read_file_content
-from app.tools.image_tool import analyze_image
-from app.tools.generate_image_tool import generate_image
-from app.tools.transcribe_audio_tool import transcribe_audio
-
 # 主智能体是调度中心：
-# 1. tools 只放最终交付相关的文件工具
-# 2. subagents 放网络、数据库、RAGFlow 三类信息获取助手
-# 3. checkpointer 通过 thread_id 保存同一会话中的执行上下文
+# 1. tools/subagents 由前端插拔开关决定，通过 agent_config.resolve_agent_config 真裁剪
+# 2. checkpointer 通过 thread_id 保存同一会话中的执行上下文
 #    项目 4 改进：使用 AsyncSqliteSaver 实现持久化存储，支持断点恢复
 #    关键：AsyncSqliteSaver 必须使用 aiosqlite 异步连接，不能用同步 sqlite3.Connection
 import aiosqlite
@@ -65,29 +53,36 @@ async def get_checkpointer():
         print(f"[MainAgent] AsyncSqliteSaver 初始化完成，数据库: {db_path}")
     return _checkpointer_instance
 
-# 全局 main_agent，延迟初始化
-_main_agent_instance = None
+# 按启停组合懒缓存的 agent 实例：checkpointer 全局共享，graph 以 frozenset(启停清单) 为键
+_agent_cache = {}
 
-async def get_main_agent():
-    """获取或创建主智能体实例（单例模式，带持久化 checkpointer）"""
-    global _main_agent_instance
-    if _main_agent_instance is None:
+
+async def get_main_agent(enabled=None):
+    """获取或创建与启停清单匹配的主智能体实例（按组合缓存）。
+
+    启停清单只含合法 kind（其余静默过滤）；同一组合复用同一实例，
+    组合最多 2^4 = 16 种，构建成本一次性摊销。
+    """
+    key = frozenset(enabled or ())
+    if key not in _agent_cache:
+        tools, subagents = resolve_agent_config(key)
         checkpointer = await get_checkpointer()
-        _main_agent_instance = create_deep_agent(
+        _agent_cache[key] = create_deep_agent(
             model=vl_model,
-            system_prompt=main_agent_content["system_prompt"],
-            tools=[generate_markdown, convert_md_to_pdf, read_file_content, analyze_image, generate_image, transcribe_audio],
+            system_prompt=build_system_prompt(key),
+            tools=tools,
             checkpointer=checkpointer,
-            subagents=[database_query_agent, network_search_agent, knowledge_base_agent],
+            subagents=subagents,
         )
-        print(f"[MainAgent] 主智能体初始化完成，checkpointer 已启用")
-    return _main_agent_instance
+        label = "、".join(sorted(key)) or "无"
+        print(f"[MainAgent] 主智能体已构建（启用: {label}），当前缓存组合数: {len(_agent_cache)}")
+    return _agent_cache[key]
 
 # 当前文件位于 app/agent/main_agent.py，parents[1] 即 app 目录
 project_root_path = Path(__file__).parents[1].resolve()
 
 
-async def run_deep_agent(task_query, session_id):
+async def run_deep_agent(task_query, session_id, enabled_tools=None):
     """
     异步流式执行主智能体
 
@@ -95,8 +90,11 @@ async def run_deep_agent(task_query, session_id):
     复制上传文件、写入 ContextVar，并在流式执行过程中把关键事件上报给前端。
     :param task_query: 前端提交的原始任务问题
     :param session_id: 当前任务 ID，同时用于 thread_id、输出目录和 WebSocket 定向推送
+    :param enabled_tools: 前端插拔开关启用的工具清单（network/database/ragflow/pdf），
+                          默认 None 等价于全关（主智能体仅以自身知识与上传文件作答）
     """
-    print(f"[MainAgent] 开始执行会话，session_id={session_id}")
+    print(f"[MainAgent] 开始执行会话，session_id={session_id}, enabled_tools={enabled_tools}")
+    enabled_kinds = frozenset(enabled_tools or ())
 
     # 每个会话独立使用 output/session_{session_id}，避免不同用户的产物互相覆盖
     session_dir = project_root_path / "output" / f"session_{session_id}"
@@ -150,8 +148,8 @@ async def run_deep_agent(task_query, session_id):
     """
 
     try:
-        # 获取已初始化的主智能体实例（带 checkpointer）
-        agent = await get_main_agent()
+        # 获取与本次启停清单匹配的主智能体实例（按组合缓存）
+        agent = await get_main_agent(enabled_kinds)
         print(f"[MainAgent] 开始调用 astream，config={config}")
         # astream 会持续产出模型节点、工具节点和子智能体节点的状态片段
         async for chunk in agent.astream(

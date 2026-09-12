@@ -8,13 +8,14 @@ import {
 } from "@ant-design/icons";
 import { Button, Tooltip, Upload } from "antd";
 import type { UploadFile } from "antd";
-import { useEffect, useRef } from "react";
 import { formatMediaDuration } from "../lib/audioRecording";
 import { useMediaInput } from "../hooks/useMediaInput";
+import type { ToolKind } from "../lib/toolShelf";
 import type { UploadedItem } from "../types";
+import { ToolChips } from "./ToolChips";
 
 interface ChatComposerProps {
-  autoFocusToken?: number;
+  enabledTools: ToolKind[];
   isCancelling: boolean;
   isRunning: boolean;
   isUploading: boolean;
@@ -23,6 +24,7 @@ interface ChatComposerProps {
   onQueryChange: (value: string) => void;
   onSubmit: () => void;
   onSuggestedPrompt: (prompt: string) => void;
+  onToggleTool: (kind: ToolKind) => void;
   onUpload: (items: UploadedItem[]) => Promise<void> | void;
   onRemoveFile: (filename: string) => void;
   query: string;
@@ -41,7 +43,7 @@ function extractFiles(info: { fileList: UploadFile[]; file: UploadFile }): File[
 }
 
 export function ChatComposer({
-  autoFocusToken = 0,
+  enabledTools,
   isCancelling,
   isRunning,
   isUploading,
@@ -51,19 +53,13 @@ export function ChatComposer({
   onRemoveFile,
   onSubmit,
   onSuggestedPrompt,
+  onToggleTool,
   onUpload,
   query,
   uploadedItems
 }: ChatComposerProps) {
   const canSubmit = query.trim().length > 0 || uploadedItems.length > 0;
   const media = useMediaInput({ onUpload, onSuggestedPrompt, onError, onRemoveFile });
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  useEffect(() => {
-    if (autoFocusToken > 0) {
-      textareaRef.current?.focus();
-    }
-  }, [autoFocusToken]);
 
   return (
     <section className="chat-composer" aria-label="发送研搜任务">
@@ -118,7 +114,6 @@ export function ChatComposer({
             }
           }}
           placeholder="向 Orbit Agent 发送任务..."
-          ref={textareaRef}
           value={query}
         />
 
@@ -142,6 +137,7 @@ export function ChatComposer({
                 />
               </Tooltip>
             </Upload>
+            <ToolChips enabled={enabledTools} onToggle={onToggleTool} />
           </div>
 
           <div className="composer-right-actions">

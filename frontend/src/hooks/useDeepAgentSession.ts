@@ -244,7 +244,7 @@ export function useDeepAgentSession() {
   }, [isRunning, refreshFiles, sessionPath]);
 
   const submitTask = useCallback(
-    async (query: string) => {
+    async (query: string, tools: string[] = []) => {
       const cleanQuery = query.trim();
       if (!cleanQuery) {
         throw new Error("请输入研搜任务");
@@ -256,7 +256,7 @@ export function useDeepAgentSession() {
       setResult("");
       setLastError("");
       try {
-        const response = await startTask(cleanQuery, threadId);
+        const response = await startTask(cleanQuery, threadId, tools);
         setSessions((previous) => {
           const current = previous.find((session) => session.threadId === threadId);
           if (!current) {

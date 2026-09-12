@@ -15,24 +15,33 @@ const TOOL_ICONS: Record<ToolKind, ReactNode> = {
 };
 
 interface ToolChipsProps {
-  onUseTool: (prompt: string) => void;
+  enabled: ToolKind[];
+  onToggle: (kind: ToolKind) => void;
 }
 
-export function ToolChips({ onUseTool }: ToolChipsProps) {
+/**
+ * 插拔式工具开关组：点击切换启用状态（只影响下一次任务），不再预填输入框。
+ */
+export function ToolChips({ enabled, onToggle }: ToolChipsProps) {
+  const enabledSet = new Set(enabled);
   return (
-    <div className="tool-chips" aria-label="可用工具">
-      {TOOL_SHELF.map((tool) => (
-        <button
-          className="tool-chip"
-          key={tool.kind}
-          onClick={() => onUseTool(tool.prompt)}
-          title={`使用「${tool.label}」预填任务`}
-          type="button"
-        >
-          {TOOL_ICONS[tool.kind]}
-          <span>{tool.label}</span>
-        </button>
-      ))}
+    <div className="tool-chips" aria-label="启用工具">
+      {TOOL_SHELF.map((tool) => {
+        const checked = enabledSet.has(tool.kind);
+        return (
+          <button
+            aria-pressed={checked}
+            className={`tool-chip ${checked ? "tool-chip--active" : ""}`}
+            key={tool.kind}
+            onClick={() => onToggle(tool.kind)}
+            title={checked ? `关闭「${tool.label}」` : `开启「${tool.label}」`}
+            type="button"
+          >
+            {TOOL_ICONS[tool.kind]}
+            <span>{tool.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  composePrefill,
-  getToolPrompt,
-  TOOL_SHELF,
-  type ToolKind
-} from "./toolShelf";
+import { serializeTools, TOOL_SHELF, type ToolKind } from "./toolShelf";
 
 const EXPECTED_KINDS: ToolKind[] = ["network", "database", "ragflow", "pdf"];
 
@@ -23,43 +18,29 @@ describe("TOOL_SHELF", () => {
       expect(tool.prompt.trim().length).toBeGreaterThan(0);
     });
   });
-
-  it("fixes the duplicated 请 in the database prompt", () => {
-    const database = TOOL_SHELF.find((tool) => tool.kind === "database");
-    expect(database).toBeDefined();
-    expect(database?.prompt).toContain("请使用数据库查询工具");
-    expect(database?.prompt).not.toContain("请请");
-  });
-
-  it("asks for a PDF deliverable in the pdf prompt", () => {
-    const pdf = TOOL_SHELF.find((tool) => tool.kind === "pdf");
-    expect(pdf).toBeDefined();
-    expect(pdf?.prompt).toContain("转 PDF");
-    expect(pdf?.prompt).toContain("PDF");
-  });
 });
 
-describe("getToolPrompt", () => {
-  it("returns the prompt of a known tool kind", () => {
-    EXPECTED_KINDS.forEach((kind) => {
-      const spec = TOOL_SHELF.find((tool) => tool.kind === kind);
-      expect(getToolPrompt(kind)).toBe(spec?.prompt);
-    });
+describe("serializeTools", () => {
+  it("returns an empty array when nothing is enabled", () => {
+    expect(serializeTools([])).toEqual([]);
   });
 
-  it("throws for an unknown tool kind", () => {
-    expect(() => getToolPrompt("unknown" as ToolKind)).toThrow();
-  });
-});
-
-describe("composePrefill", () => {
-  it("returns the tool prompt when the input is empty", () => {
-    const prompt = getToolPrompt("pdf");
-    expect(composePrefill("", prompt)).toBe(prompt);
+  it("serializes kinds in TOOL_SHELF order regardless of input order", () => {
+    expect(serializeTools(["pdf", "network"])).toEqual(["network", "pdf"]);
   });
 
-  it("replaces existing input with the tool prompt", () => {
-    const prompt = getToolPrompt("network");
-    expect(composePrefill("之前输入的内容", prompt)).toBe(prompt);
+  it("deduplicates repeated kinds", () => {
+    expect(serializeTools(["database", "database", "pdf"])).toEqual([
+      "database",
+      "pdf"
+    ]);
+  });
+
+  it("serializes all four kinds", () => {
+    expect(serializeTools(EXPECTED_KINDS)).toEqual(EXPECTED_KINDS);
+  });
+
+  it("accepts any iterable, including a Set", () => {
+    expect(serializeTools(new Set<ToolKind>(["ragflow"]))).toEqual(["ragflow"]);
   });
 });

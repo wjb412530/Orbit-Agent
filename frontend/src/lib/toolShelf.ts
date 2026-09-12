@@ -38,14 +38,13 @@ export const TOOL_SHELF: ToolSpec[] = [
   }
 ];
 
-export function getToolPrompt(kind: ToolKind): string {
-  const spec = TOOL_SHELF.find((tool) => tool.kind === kind);
-  if (!spec) {
-    throw new Error(`Unknown tool kind: ${kind}`);
-  }
-  return spec.prompt;
-}
-
-export function composePrefill(_current: string, toolPrompt: string): string {
-  return toolPrompt;
+/**
+ * 把启停集合序列化为 API 白名单字符串数组（network/database/ragflow/pdf）。
+ * 输出顺序固定为 TOOL_SHELF 顺序，并对重复 kind 去重。
+ */
+export function serializeTools(kinds: Iterable<ToolKind>): string[] {
+  const enabled = new Set(kinds);
+  return TOOL_SHELF.filter((tool) => enabled.has(tool.kind)).map(
+    (tool) => tool.kind
+  );
 }

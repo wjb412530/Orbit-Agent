@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { ChatComposer } from "./components/ChatComposer";
 import { ConversationThread } from "./components/ConversationThread";
 import type { ChatTurn } from "./components/ConversationThread";
-import { ToolChips } from "./components/ToolChips";
 import { historyToTurns, loadThreadHistory, saveThreadHistory, turnsToHistory } from "./lib/history";
 import { buildMediaPrompt } from "./lib/media";
 import { relativeTime } from "./lib/sessions";
+import { serializeTools, type ToolKind } from "./lib/toolShelf";
 import { useDeepAgentSession } from "./hooks/useDeepAgentSession";
 import type { ConnectionState, UploadedItem } from "./types";
 
@@ -36,7 +36,7 @@ function createTurn(content: string): ChatTurn {
 export default function App() {
   const { message } = AntApp.useApp();
   const [query, setQuery] = useState("");
-  const [autofocusToken, setAutofocusToken] = useState(0);
+  const [enabledTools, setEnabledTools] = useState<Set<ToolKind>>(new Set());
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const turnsRef = useRef<ChatTurn[]>(turns);
   const streamRef = useRef<HTMLElement | null>(null);
@@ -108,7 +108,7 @@ export default function App() {
     setQuery("");
 
     try {
-      await session.submitTask(submitQuery);
+      await session.submitTask(submitQuery, serializeTools(enabledTools));
       message.success("任务已启动，执行过程会显示在对话中");
     } catch (error) {
       setTurns((previous) =>
@@ -148,9 +148,16 @@ export default function App() {
     setQuery((current) => (current.trim() ? current : prompt));
   }
 
-  function handleUseTool(prompt: string) {
-    setQuery(prompt);
-    setAutofocusToken((current) => current + 1);
+  function handleToggleTool(kind: ToolKind) {
+    setEnabledTools((current) => {
+      const next = new Set(current);
+      if (next.has(kind)) {
+        next.delete(kind);
+      } else {
+        next.add(kind);
+      }
+      return next;
+    });
   }
 
   function handleRemoveFile(filename: string) {
@@ -180,6 +187,7 @@ export default function App() {
     session.resetSession();
     setTurns([]);
     setQuery("");
+    setEnabledTools(new Set());
   }
 
   function handleSwitchSession(threadId: string) {
@@ -190,6 +198,7 @@ export default function App() {
     session.switchSession(threadId);
     setTurns(restoreHistory(threadId));
     setQuery("");
+    setEnabledTools(new Set());
   }
 
   function handleDeleteSession(targetThreadId: string) {
@@ -291,7 +300,6 @@ export default function App() {
         ) : null}
 
         <section className="chat-stream-panel" ref={streamRef}>
-          <ToolChips onUseTool={handleUseTool} />
           <ConversationThread
             onUseExample={handleSuggestedPrompt}
             turns={turns}
@@ -299,7 +307,7 @@ export default function App() {
         </section>
 
         <ChatComposer
-          autoFocusToken={autofocusToken}
+          enabledTools={[...enabledTools]}
           isCancelling={session.isCancelling}
           isRunning={session.isRunning}
           isUploading={session.isUploading}
@@ -309,6 +317,7 @@ export default function App() {
           onRemoveFile={handleRemoveFile}
           onSubmit={handleSubmit}
           onSuggestedPrompt={handleSuggestedPrompt}
+          onToggleTool={handleToggleTool}
           onUpload={handleUpload}
           query={query}
           uploadedItems={session.uploadedItems}

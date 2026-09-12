@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.agent.agent_config import ALLOWED_TOOL_KINDS
 from app.agent.main_agent import run_deep_agent
 from app.api.monitor import manager
 from app.utils.safety import get_security_config, validate_file_upload
@@ -85,10 +86,15 @@ app.add_middleware(
 
 
 class TaskRequest(BaseModel):
-    """前端启动任务时提交的请求体。"""
+    """前端启动任务时提交的请求体。
+
+    tools 是前端插拔开关的启用清单，合法值见 ALLOWED_TOOL_KINDS
+    （network/database/ragflow/pdf）；缺省或空列表等价于全关。
+    """
 
     query: str
     thread_id: str = None
+    tools: List[str] = []
 
 
 def _forget_task(thread_id: str, task: asyncio.Task) -> None:
@@ -102,14 +108,14 @@ def _forget_task(thread_id: str, task: asyncio.Task) -> None:
         active_tasks.pop(thread_id, None)
 
 
-async def _run_bounded(query: str, thread_id: str) -> None:
+async def _run_bounded(query: str, thread_id: str, tools: List[str]) -> None:
     """在信号量限流下执行 DeepAgents 任务。
 
     任务排队发生在后台协程内，HTTP 接口仍立即返回；当并发任务数达到
     TASK_CONCURRENCY 上限时，多余任务在此排队等待，而非同时执行。
     """
     async with _task_semaphore:
-        await run_deep_agent(query, thread_id)
+        await run_deep_agent(query, thread_id, tools)
 
 
 @app.post("/api/task")
@@ -121,6 +127,8 @@ async def run_task(request: TaskRequest):
     答案都会由 monitor 通过 `/ws/{thread_id}` 推送给同一会话的前端。
     """
     thread_id = request.thread_id or str(uuid.uuid4())
+    # 白名单过滤非法 kind（宽容策略：未知值静默忽略，不报 4xx）
+    tools = [kind for kind in request.tools if kind in ALLOWED_TOOL_KINDS]
 
     # 同一个 thread_id 只保留一个活跃任务，新任务会先取消旧任务，避免并发写同一会话目录
     old_task = active_tasks.get(thread_id)
@@ -128,7 +136,7 @@ async def run_task(request: TaskRequest):
         old_task.cancel()
 
     # create_task 把长耗时 Agent 执行交给事件循环，接口本身不用等待最终结果
-    task = asyncio.create_task(_run_bounded(request.query, thread_id))
+    task = asyncio.create_task(_run_bounded(request.query, thread_id, tools))
     active_tasks[thread_id] = task
     task.add_done_callback(lambda finished_task: _forget_task(thread_id, finished_task))
 
